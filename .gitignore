@@ -25,3 +25,17 @@ Thumbs.db
 
 # GitHub Actions cache
 /.github/workflows/*.cache
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
