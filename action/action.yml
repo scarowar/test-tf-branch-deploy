@@ -109,9 +109,14 @@ runs:
 
   - name: Download Plan Artifact
     if: steps.branch-deploy.outputs.noop == 'false'
-    uses: actions/download-artifact@v4
+    uses: dawidd6/action-download-artifact@ac66b43f0e6a346234dd65d4d0c8fbb31cb316e5
     with:
+      github_token: ${{ inputs.github-token }}
+      workflow: ${{ github.workflow }}
+      commit: ${{ steps.branch-deploy.outputs.sha }}
       name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
+      path: ${{ inputs.working-directory }}
+      if_no_artifact_found: 'fail'
 
   - name: Terraform Apply
     if: steps.branch-deploy.outputs.noop == 'false'
