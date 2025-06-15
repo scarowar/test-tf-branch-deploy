@@ -8,9 +8,9 @@ defaults:
   #   paths:
   #   - common.tfvars
   # Default arguments for the 'plan' command for all environments.
-  # plan-args:
-  #   args:
-  #   - "-compact-warnings"
+  plan-args:
+    args:
+    - "-compact-warnings"
 
 environments:
   dev:
@@ -39,10 +39,10 @@ environments:
       - ./terraform/prod/prod.tfvars
       - ./terraform/prod/secrets.prod.tfvars
     # This also overrides the default plan-args entirely.
-    # plan-args:
-    #   inherit: false
-    #   args:
-    #   - "-parallelism=25"
+    plan-args:
+      inherit: false
+      args:
+      - "-parallelism=25"
     # Add specific arguments for the apply command only for the prod environment.
     apply-args:
       args:
