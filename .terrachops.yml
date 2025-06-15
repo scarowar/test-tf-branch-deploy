@@ -8,41 +8,41 @@ defaults:
   #   paths:
   #   - common.tfvars
   # Default arguments for the 'plan' command for all environments.
-  # plan-args:
-  #   args:
-  #   - "-compact-warnings"
+  plan-args:
+    args:
+    - "-compact-warnings"
 
 environments:
   dev:
     # 'dev' inherits defaults by default and adds its own specific configurations.
     working-directory: ./terraform/dev
-    # backend-configs:
-    #   paths:
-    #   # This is a list of paths for backend config files
-    #   - dev.s3.tfbackend
-    # var-files:
-    #   paths:
-    #   # These paths are merged with the default var-files
-    #   - dev.tfvars
+    backend-configs:
+      paths:
+      # This is a list of paths for backend config files
+      - dev.s3.tfbackend
+    var-files:
+      paths:
+      # These paths are merged with the default var-files
+      - dev.tfvars
 
   prod:
     # 'prod' is more restrictive and explicitly overrides some defaults.
     working-directory: ./terraform/prod
-    # backend-configs:
-    #   paths:
-    #   - prod.s3.tfbackend
+    backend-configs:
+      paths:
+      - prod.s3.tfbackend
     # The 'inherit: false' flag tells Terrachops to IGNORE the default var-files
     # and use ONLY the paths specified here.
-    # var-files:
-    #   inherit: false
-    #   paths:
-    #   - prod.tfvars
-    #   - secrets.prod.tfvars
+    var-files:
+      inherit: false
+      paths:
+      - prod.tfvars
+      - secrets.prod.tfvars
     # This also overrides the default plan-args entirely.
-    # plan-args:
-    #   inherit: false
-    #   args:
-    #   - "-parallelism=25"
+    plan-args:
+      inherit: false
+      args:
+      - "-parallelism=25"
     # Add specific arguments for the apply command only for the prod environment.
     apply-args:
       args:
