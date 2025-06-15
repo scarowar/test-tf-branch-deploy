@@ -1,0 +1,24 @@
+name: 'Terrachops'
+description: 'A reusable composite action for streamlined, IssueOps-driven Terraform deployments.'
+author: 'Scarowar'
+
+inputs:
+  terraform-version:
+    description: 'The version of Terraform to install.'
+    required: false
+    default: 'latest'
+  working-directory:
+    description: 'The path to the Terraform code.'
+    required: false
+    default: '.'
+
+branding:
+  icon: 'terminal'
+  color: 'purple'
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Say Hello
+    run: echo "Terrachops action is running!"
+    shell: bash
