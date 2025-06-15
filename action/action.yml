@@ -2,7 +2,14 @@ name: 'Terrachops'
 description: 'A reusable composite action for streamlined, IssueOps-driven Terraform deployments.'
 author: 'Scarowar'
 
+branding:
+  icon: 'terminal'
+  color: 'purple'
+
 inputs:
+  github-token:
+    description: 'The GitHub token for authentication.'
+    required: true
   terraform-version:
     description: 'The version of Terraform to install.'
     required: false
@@ -11,32 +18,49 @@ inputs:
     description: 'The path to the Terraform code.'
     required: false
     default: '.'
-
-branding:
-  icon: 'terminal'
-  color: 'purple'
+  noop-trigger:
+    description: 'The comment trigger for a terraform plan.'
+    required: false
+    default: '.tf plan'
 
 runs:
   using: 'composite'
   steps:
+  - name: 'IssueOps Command Dispatcher'
+    id: branch-deploy
+    uses: github/branch-deploy@e837cad62fcc6f5f45997baafd69c57ea9b0641d
+    with:
+      token: ${{ inputs.github-token }}
+      noop_trigger: ${{ inputs.noop-trigger }}
+
+  - name: Checkout Code
+    if: steps.branch-deploy.outputs.continue == 'true'
+    uses: actions/checkout@v4
+    with:
+      ref: ${{ steps.branch-deploy.outputs.sha }}
+
   - name: Setup Terraform
+    if: steps.branch-deploy.outputs.continue == 'true'
     uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
     with:
       terraform_version: ${{ inputs.terraform-version }}
 
   - name: Terraform Init
+    if: steps.branch-deploy.outputs.continue == 'true'
     id: init
     run: terraform init
     shell: bash
     working-directory: ${{ inputs.working-directory }}
 
   - name: Terraform Format Check
+    if: steps.branch-deploy.outputs.continue == 'true'
     id: fmt
     run: terraform fmt -check
     shell: bash
     working-directory: ${{ inputs.working-directory }}
 
   - name: Terraform Validate
+    if: steps.branch-deploy.outputs.continue == 'true'
     id: validate
     run: terraform validate
     shell: bash
