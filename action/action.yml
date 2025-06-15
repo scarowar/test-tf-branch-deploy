@@ -30,7 +30,7 @@ runs:
     id: branch-deploy
     uses: github/branch-deploy@e837cad62fcc6f5f45997baafd69c57ea9b0641d
     with:
-      token: ${{ inputs.github-token }}
+      github_token: ${{ inputs.github-token }}
       noop_trigger: ${{ inputs.noop-trigger }}
 
   - name: Checkout Code
