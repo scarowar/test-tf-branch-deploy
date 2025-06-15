@@ -1,0 +1,4 @@
+# Dummy backend config for prod
+bucket = "my-prod-bucket"
+key    = "terraform.tfstate"
+region = "us-east-1"
