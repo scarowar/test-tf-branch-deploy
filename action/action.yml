@@ -174,7 +174,7 @@ runs:
     env:
       GH_TOKEN: ${{ inputs.github-token }}
     run: |
-      TAG_NAME="terrachops/plan/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
+      TAG_NAME="terrachops/plan/${{ steps.branch-deploy.outputs.environment }}/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
       TAG_MESSAGE="Terrachops plan artifact from run ${{ github.run_id }}. Triggered by @${{ github.actor }} on $(date -u)."
 
       if git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; then
@@ -207,10 +207,10 @@ runs:
     run: |
       git fetch --tags
       COMMIT_SHA="${{ steps.branch-deploy.outputs.sha }}"
-      TAG=$(git for-each-ref "refs/tags/terrachops/plan/*/${COMMIT_SHA}" --sort=-creatordate --format='%(refname:short)' | head -n 1)
-
+      TARGET_ENV="${{ steps.branch-deploy.outputs.environment }}"
+      TAG=$(git for-each-ref "refs/tags/terrachops/plan/${TARGET_ENV}/*/${COMMIT_SHA}" --sort=-creatordate --format='%(refname:short)' | head -n 1)
       if [ -z "$TAG" ]; then
-        echo "::error::No Terrachops plan tag found for commit $COMMIT_SHA. Please run '.tf plan' first."
+        echo "::error::No Terrachops plan tag found for commit $COMMIT_SHA in environment '$TARGET_ENV'. Please run '.tf plan to $TARGET_ENV' first."
         exit 1
       fi
 

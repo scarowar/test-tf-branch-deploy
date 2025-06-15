@@ -19,25 +19,25 @@ environments:
     backend-configs:
       paths:
       # This is a list of paths for backend config files
-      - dev.s3.tfbackend
+      - ./terraform/dev/dev.s3.tfbackend
     var-files:
       paths:
       # These paths are merged with the default var-files
-      - dev.tfvars
+      - ./terraform/dev/dev.tfvars
 
   prod:
     # 'prod' is more restrictive and explicitly overrides some defaults.
     working-directory: ./terraform/prod
     backend-configs:
       paths:
-      - prod.s3.tfbackend
+      - ./terraform/prod/prod.s3.tfbackend
     # The 'inherit: false' flag tells Terrachops to IGNORE the default var-files
     # and use ONLY the paths specified here.
     var-files:
       inherit: false
       paths:
-      - prod.tfvars
-      - secrets.prod.tfvars
+      - ./terraform/prod/prod.tfvars
+      - ./terraform/prod/secrets.prod.tfvars
     # This also overrides the default plan-args entirely.
     plan-args:
       inherit: false

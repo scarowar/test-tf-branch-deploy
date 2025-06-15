@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -e
 set -o pipefail
 
@@ -13,38 +14,6 @@ error_exit() {
   exit 1
 }
 
-
-# Robustly build args from a YAML list
-build_args_from_list() {
-  local query_path="$1"
-  local prefix="$2"
-  local args=""
-  local items
-  items=$(yq e "$query_path // []" .terrachops.yml)
-  if [[ "$items" != "null" ]]; then
-    while read -r item; do
-      [[ -z "$item" || "$item" == "-"* ]] && continue
-      args="$args $prefix$item"
-    done <<< "$(echo "$items" | yq e '.[]' -)"
-  fi
-  echo "$args"
-}
-
-process_list() {
-  local key_name="$1"
-  local arg_prefix="$2"
-  local list_key="paths"
-  [[ "$key_name" == *"-args" ]] && list_key="args"
-
-  inherit=$(yq e ".environments.$ENV_NAME.$key_name.inherit // true" .terrachops.yml)
-  local default_args=""
-  if [ "$inherit" == "true" ]; then
-    default_args=$(build_args_from_list ".defaults.$key_name.$list_key" "$arg_prefix")
-  fi
-  env_args=$(build_args_from_list ".environments.$ENV_NAME.$key_name.$list_key" "$arg_prefix")
-  echo "${default_args}${env_args}" | xargs
-}
-
 # --- Main Logic ---
 if [ ! -f ".terrachops.yml" ]; then
   echo "No .terrachops.yml found. Using action defaults."
@@ -53,49 +22,80 @@ if [ ! -f ".terrachops.yml" ]; then
   FINAL_PLAN_ARGS=""
   FINAL_APPLY_ARGS=""
 else
-  echo "Found .terrachops.yml. Parsing configuration for environment: '$ENV_NAME'"
+  echo "✅ Found .terrachops.yml. Parsing configuration for environment: '$ENV_NAME'"
 
-  if [ -n "$ENV_NAME" ] && [ "$ENV_NAME" != "production" ] && [ "$(yq e ".environments.$ENV_NAME" .terrachops.yml)" == "null" ]; then
+  if [ -n "$ENV_NAME" ] && [ "$ENV_NAME" != "production" ] && [[ "$(yq e ".environments.$ENV_NAME" .terrachops.yml)" == "null" ]]; then
     error_exit "Configuration Error: Environment '$ENV_NAME' not found in .terrachops.yml."
   fi
 
-  FINAL_WORKING_DIR=$(yq e ".environments.$ENV_NAME.working-directory // \"$DEFAULT_WORKING_DIR\"" .terrachops.yml)
-  FINAL_INIT_ARGS="$(process_list "backend-configs" "-backend-config=") $(process_list "init-args" "")"
-  FINAL_PLAN_ARGS="$(process_list "var-files" "-var-file=") $(process_list "plan-args" "")"
-  FINAL_APPLY_ARGS="$(process_list "apply-args" "")"
-  FINAL_INIT_ARGS=$(echo "$FINAL_INIT_ARGS" | xargs)
-  FINAL_PLAN_ARGS=$(echo "$FINAL_PLAN_ARGS" | xargs)
-  FINAL_APPLY_ARGS=$(echo "$FINAL_APPLY_ARGS" | xargs)
+  # --- Determine Final Working Directory ---
+  FINAL_WORKING_DIR=$(yq e ".environments.$ENV_NAME.working-directory // \"$DEFAULT_WORKING_DIR\"" .terrachops.yml | xargs)
 
-  # Debug output
-  echo "DEBUG: FINAL_WORKING_DIR=$FINAL_WORKING_DIR"
-  echo "DEBUG: FINAL_INIT_ARGS=$FINAL_INIT_ARGS"
-  echo "DEBUG: FINAL_PLAN_ARGS=$FINAL_PLAN_ARGS"
-  echo "DEBUG: FINAL_APPLY_ARGS=$FINAL_APPLY_ARGS"
+  # --- Build Argument Strings ---
+  process_args() {
+    local key_name="$1"
+    local arg_prefix="$2"
+    local list_key="paths"
+    [[ "$key_name" == *"-args" ]] && list_key="args"
+    local final_args=""
+
+    # 1. Process default arguments
+    inherit=$(yq e ".environments.$ENV_NAME.$key_name.inherit // true" .terrachops.yml)
+    if [ "$inherit" == "true" ]; then
+      for item in $(yq e ".defaults.$key_name.$list_key[]?" .terrachops.yml); do
+        # For paths, calculate relative path from working dir. For args, use as-is.
+        if [[ "$list_key" == "paths" ]]; then
+          # Ensure file exists before calculating path
+          [ ! -f "$item" ] && error_exit "Configuration Error: Default file '$item' not found in repository root."
+          item=$(realpath --relative-to="$FINAL_WORKING_DIR" "$item")
+        fi
+        final_args+=" ${arg_prefix}${item}"
+      done
+    fi
+
+    # 2. Process environment-specific arguments
+    for item in $(yq e ".environments.$ENV_NAME.$key_name.$list_key[]?" .terrachops.yml); do
+        # For paths, calculate relative path. For args, use as-is.
+        if [[ "$list_key" == "paths" ]]; then
+          # Ensure file exists before calculating path
+          [ ! -f "$item" ] && error_exit "Configuration Error: Environment file '$item' not found in repository root."
+          item=$(realpath --relative-to="$FINAL_WORKING_DIR" "$item")
+        fi
+        final_args+=" ${arg_prefix}${item}"
+    done
+
+    echo "$final_args"
+  }
+
+  FINAL_INIT_ARGS="$(process_args 'backend-configs' '-backend-config=') $(process_args 'init-args' '')"
+  FINAL_PLAN_ARGS="$(process_args 'var-files' '-var-file=') $(process_args 'plan-args' '')"
+  FINAL_APPLY_ARGS="$(process_args 'apply-args' '')"
 fi
 
-# --- Layer on dynamic flags from comment ---
+# --- Securely Parse & Append Dynamic Flags ---
 SAFE_DYNAMIC_FLAGS=""
-for param in $DYNAMIC_PARAMS; do
+# Read params into an array to handle quoted values correctly
+read -r -a DYNAMIC_PARAMS_ARRAY <<< "$DYNAMIC_PARAMS"
+for param in "${DYNAMIC_PARAMS_ARRAY[@]}"; do
   case "$param" in
     --target=*)
-      TARGET_VALUE=$(echo "$param" | cut -d'=' -f2)
-      if [[ "$TARGET_VALUE" =~ ^[a-zA-Z0-9_.-]+\[?[0-9]*\]?$ ]]; then
-         SAFE_DYNAMIC_FLAGS+=" --target=${TARGET_VALUE}"
-      else
-        error_exit "Invalid characters in dynamic --target value: $TARGET_VALUE"
-      fi
+      # Allow multiple --target flags
+      SAFE_DYNAMIC_FLAGS+=" $param"
+      ;;
+    -var=*)
+      # Allow multiple -var flags
+      SAFE_DYNAMIC_FLAGS+=" $param"
       ;;
     *)
-      echo "Warning: Ignoring unsupported dynamic parameter '$param'."
+      echo "::warning::Ignoring unsupported dynamic parameter '$param'."
       ;;
   esac
 done
 
-FULL_PLAN_ARGS=$(echo "${FINAL_PLAN_ARGS} ${SAFE_DYNAMIC_FLAGS}" | xargs)
+FULL_PLAN_ARGS="${FINAL_PLAN_ARGS}${SAFE_DYNAMIC_FLAGS}"
 
-# --- Output final values ---
-echo "working_dir=${FINAL_WORKING_DIR}" >> "$GITHUB_OUTPUT"
-echo "init_args=${FINAL_INIT_ARGS}" >> "$GITHUB_OUTPUT"
-echo "plan_args=${FULL_PLAN_ARGS:-$FINAL_PLAN_ARGS}" >> "$GITHUB_OUTPUT"
-echo "apply_args=${FINAL_APPLY_ARGS}" >> "$GITHUB_OUTPUT"
+# --- Output final, trimmed values ---
+echo "working_dir=$(echo "$FINAL_WORKING_DIR" | xargs)" >> "$GITHUB_OUTPUT"
+echo "init_args=$(echo "$FINAL_INIT_ARGS" | xargs)" >> "$GITHUB_OUTPUT"
+echo "plan_args=$(echo "$FULL_PLAN_ARGS" | xargs)" >> "$GITHUB_OUTPUT"
+echo "apply_args=$(echo "$FINAL_APPLY_ARGS" | xargs)" >> "$GITHUB_OUTPUT"
