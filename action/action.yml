@@ -26,10 +26,6 @@ inputs:
     description: 'The comment trigger for a terraform apply.'
     required: false
     default: '.tf apply'
-  required-approvals:
-    description: 'The number of required approvals on a PR before an apply can be run.'
-    required: false
-    default: '0'
 
 runs:
   using: 'composite'
@@ -41,7 +37,6 @@ runs:
       github_token: ${{ inputs.github-token }}
       noop_trigger: ${{ inputs.noop-trigger }}
       trigger: ${{ inputs.trigger }}
-      required_approvals: ${{ inputs.required-approvals }}
 
   - name: Checkout Code
     if: steps.branch-deploy.outputs.continue == 'true'
