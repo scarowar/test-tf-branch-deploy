@@ -74,9 +74,8 @@ runs:
   - name: Prepare Terrachops Commands
     if: steps.branch-deploy.outputs.continue == 'true'
     id: prepare_cmds
-    working-directory: ${{ github.action_path }}
     run: |
-      ./scripts/prepare-terrachops.sh \
+      ${{ github.action_path }}/scripts/prepare-terrachops.sh \
         "${{ inputs.working-directory }}" \
         "${{ steps.branch-deploy.outputs.environment }}" \
         "${{ steps.branch-deploy.outputs.params }}"
