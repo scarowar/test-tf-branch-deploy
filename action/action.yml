@@ -76,6 +76,11 @@ runs:
       ref: ${{ steps.branch-deploy.outputs.sha }}
       fetch-depth: 0
 
+  - name: Ensure prepare-terrachops.sh is executable
+    if: steps.branch-deploy.outputs.continue == 'true'
+    run: chmod +x ${{ github.action_path }}/scripts/prepare-terrachops.sh
+    shell: bash
+
   - name: Prepare Terrachops Commands
     if: steps.branch-deploy.outputs.continue == 'true'
     id: prepare_cmds
