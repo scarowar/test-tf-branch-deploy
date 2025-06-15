@@ -1,3 +1,5 @@
+# This is a test Terraform configuration for Terrachops
+
 terraform {
   required_providers {
     null = {
