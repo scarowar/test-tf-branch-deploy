@@ -22,6 +22,14 @@ inputs:
     description: 'The comment trigger for a terraform plan.'
     required: false
     default: '.tf plan'
+  trigger:
+    description: 'The comment trigger for a terraform apply.'
+    required: false
+    default: '.tf apply'
+  required-approvals:
+    description: 'The number of required approvals on a PR before an apply can be run.'
+    required: false
+    default: '0'
 
 runs:
   using: 'composite'
@@ -32,6 +40,8 @@ runs:
     with:
       github_token: ${{ inputs.github-token }}
       noop_trigger: ${{ inputs.noop-trigger }}
+      trigger: ${{ inputs.trigger }}
+      required_approvals: ${{ inputs.required-approvals }}
 
   - name: Checkout Code
     if: steps.branch-deploy.outputs.continue == 'true'
@@ -69,16 +79,25 @@ runs:
   - name: Terraform Plan
     if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
     id: plan
-    run: terraform plan -no-color -out=tfplan.binary > tfplan.txt
+    run: |
+      terraform plan -no-color -out=tfplan.binary > tfplan.txt
+      mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
     shell: bash
     working-directory: ${{ inputs.working-directory }}
 
-  - name: Upload Plan Artifact
+  - name: Upload Plan Text Artifact
     if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
-    uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+    uses: actions/upload-artifact@v4
     with:
-      name: terraform-plan
+      name: terraform-plan-txt-${{ steps.branch-deploy.outputs.sha }}
       path: ${{ inputs.working-directory }}/tfplan.txt
+
+  - name: Upload Plan Binary Artifact
+    if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
+    uses: actions/upload-artifact@v4
+    with:
+      name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
+      path: ${{ inputs.working-directory }}/tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
 
   - name: Create Plan Comment
     if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
@@ -92,3 +111,35 @@ runs:
         ```terraform
         ${{ steps.plan.outputs.stdout }}
         ```
+
+  - name: Download Plan Artifact
+    if: steps.branch-deploy.outputs.noop == 'false'
+    uses: actions/download-artifact@v4
+    with:
+      name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
+
+  - name: Terraform Apply
+    if: steps.branch-deploy.outputs.noop == 'false'
+    id: apply
+    run: terraform apply -no-color -auto-approve tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
+    shell: bash
+    working-directory: ${{ inputs.working-directory }}
+
+  - name: Update PR with Apply Result
+    if: steps.branch-deploy.outputs.noop == 'false'
+    uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
+    with:
+      token: ${{ inputs.github-token }}
+      issue-number: ${{ github.event.issue.number }}
+      body: |
+        ### Terraform Apply Complete
+
+        **Result:** `${{ steps.apply.outcome }}`
+
+        <details><summary>Show Apply Output</summary>
+
+        ```
+        ${{ steps.apply.outputs.stdout }}
+        ```
+
+        </details>
