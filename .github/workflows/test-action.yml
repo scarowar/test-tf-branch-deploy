@@ -1,0 +1,21 @@
+name: 'Test Terrachops Action'
+
+on:
+  workflow_dispatch:
+    inputs:
+      tf_version:
+        description: 'Terraform Version'
+        required: true
+        default: 'latest'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Terrachops
+        uses: ./action
+        with:
+          terraform-version: ${{ github.event.inputs.tf_version }}
