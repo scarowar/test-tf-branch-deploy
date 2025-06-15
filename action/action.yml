@@ -85,7 +85,7 @@ runs:
     uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
     with:
       token: ${{ inputs.github-token }}
-      issue-number: ${{ fromJson(steps.branch-deploy.outputs.deployment_context).issue.number }}
+      issue-number: ${{ github.event.issue.number }}
       body: |
         ### Terraform Plan
 
