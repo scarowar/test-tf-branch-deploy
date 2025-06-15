@@ -56,7 +56,7 @@ if [ ! -f ".terrachops.yml" ]; then
 else
   echo "Found .terrachops.yml. Parsing configuration for environment: '$ENV_NAME'"
 
-  if [ -n "$ENV_NAME" ] && [ "$ENV_NAME" != "production" ] && [ -z "$(yq e ".environments.$ENV_NAME // empty" .terrachops.yml)" ]; then
+  if [ -n "$ENV_NAME" ] && [ "$ENV_NAME" != "production" ] && [ "$(yq e ".environments.$ENV_NAME" .terrachops.yml)" == "null" ]; then
     error_exit "Configuration Error: Environment '$ENV_NAME' not found in .terrachops.yml."
   fi
 
