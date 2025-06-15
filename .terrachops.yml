@@ -4,9 +4,9 @@
 # Optional: A 'defaults' block to set baseline configurations for all environments.
 defaults:
   # A list of var files to apply to all environments by default.
-  # var-files:
-  #   paths:
-  #   - common.tfvars
+  var-files:
+    paths:
+    - common.tfvars
   # Default arguments for the 'plan' command for all environments.
   plan-args:
     args:
