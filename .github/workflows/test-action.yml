@@ -19,3 +19,4 @@ jobs:
         uses: ./action
         with:
           terraform-version: ${{ github.event.inputs.tf_version }}
+          working-directory: './test-infra'
