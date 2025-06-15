@@ -1,12 +1,12 @@
 name: 'Test Terrachops Action'
 
 on:
-  workflow_dispatch:
-    inputs:
-      tf_version:
-        description: 'Terraform Version'
-        required: true
-        default: 'latest'
+    issue_comment:
+        types: [created]
+
+permissions:
+    pull-requests: write
+    contents: read
 
 jobs:
   test:
@@ -18,5 +18,5 @@ jobs:
       - name: Run Terrachops
         uses: ./action
         with:
-          terraform-version: ${{ github.event.inputs.tf_version }}
-          working-directory: './test-infra'
+            github-token: ${{ secrets.GITHUB_TOKEN }}
+            working-directory: './test-infra'
