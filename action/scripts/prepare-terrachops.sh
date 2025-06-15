@@ -13,18 +13,19 @@ error_exit() {
   exit 1
 }
 
+
+# Robustly build args from a YAML list
 build_args_from_list() {
   local query_path="$1"
   local prefix="$2"
   local args=""
-
-  if yq e "has($query_path)" .terrachops.yml | grep -q 'true'; then
-    if [ "$(yq e "($query_path) | type" .terrachops.yml)" != "!!seq" ]; then
-      error_exit "Configuration Error: '$query_path' in .terrachops.yml must be a list (e.g., using '- ...')."
-    fi
-    for item in $(yq e "$query_path | .[]" .terrachops.yml); do
-      args+=" ${prefix}${item}"
-    done
+  local items
+  items=$(yq e "$query_path // []" .terrachops.yml)
+  if [[ "$items" != "null" ]]; then
+    while read -r item; do
+      [[ -z "$item" || "$item" == "-"* ]] && continue
+      args="$args $prefix$item"
+    done <<< "$(echo "$items" | yq e '.[]' -)"
   fi
   echo "$args"
 }
@@ -36,12 +37,10 @@ process_list() {
   [[ "$key_name" == *"-args" ]] && list_key="args"
 
   inherit=$(yq e ".environments.$ENV_NAME.$key_name.inherit // true" .terrachops.yml)
-
   local default_args=""
   if [ "$inherit" == "true" ]; then
     default_args=$(build_args_from_list ".defaults.$key_name.$list_key" "$arg_prefix")
   fi
-
   env_args=$(build_args_from_list ".environments.$ENV_NAME.$key_name.$list_key" "$arg_prefix")
   echo "${default_args}${env_args}" | xargs
 }
@@ -61,15 +60,18 @@ else
   fi
 
   FINAL_WORKING_DIR=$(yq e ".environments.$ENV_NAME.working-directory // \"$DEFAULT_WORKING_DIR\"" .terrachops.yml)
-  BACKEND_CONFIGS=$(process_list "backend-configs" "-backend-config=")
-  VAR_FILES=$(process_list "var-files" "-var-file=")
-  INIT_ARGS_GENERIC=$(process_list "init-args" "")
-  PLAN_ARGS_GENERIC=$(process_list "plan-args" "")
-  APPLY_ARGS_GENERIC=$(process_list "apply-args" "")
+  FINAL_INIT_ARGS="$(process_list "backend-configs" "-backend-config=") $(process_list "init-args" "")"
+  FINAL_PLAN_ARGS="$(process_list "var-files" "-var-file=") $(process_list "plan-args" "")"
+  FINAL_APPLY_ARGS="$(process_list "apply-args" "")"
+  FINAL_INIT_ARGS=$(echo "$FINAL_INIT_ARGS" | xargs)
+  FINAL_PLAN_ARGS=$(echo "$FINAL_PLAN_ARGS" | xargs)
+  FINAL_APPLY_ARGS=$(echo "$FINAL_APPLY_ARGS" | xargs)
 
-  FINAL_INIT_ARGS=$(echo "${BACKEND_CONFIGS}${INIT_ARGS_GENERIC}" | xargs)
-  FINAL_PLAN_ARGS=$(echo "${VAR_FILES}${PLAN_ARGS_GENERIC}" | xargs)
-  FINAL_APPLY_ARGS=$(echo "${APPLY_ARGS_GENERIC}" | xargs)
+  # Debug output
+  echo "DEBUG: FINAL_WORKING_DIR=$FINAL_WORKING_DIR"
+  echo "DEBUG: FINAL_INIT_ARGS=$FINAL_INIT_ARGS"
+  echo "DEBUG: FINAL_PLAN_ARGS=$FINAL_PLAN_ARGS"
+  echo "DEBUG: FINAL_APPLY_ARGS=$FINAL_APPLY_ARGS"
 fi
 
 # --- Layer on dynamic flags from comment ---
@@ -95,5 +97,5 @@ FULL_PLAN_ARGS=$(echo "${FINAL_PLAN_ARGS} ${SAFE_DYNAMIC_FLAGS}" | xargs)
 # --- Output final values ---
 echo "working_dir=${FINAL_WORKING_DIR}" >> "$GITHUB_OUTPUT"
 echo "init_args=${FINAL_INIT_ARGS}" >> "$GITHUB_OUTPUT"
-echo "plan_args=${FULL_PLAN_ARGS}" >> "$GITHUB_OUTPUT"
+echo "plan_args=${FULL_PLAN_ARGS:-$FINAL_PLAN_ARGS}" >> "$GITHUB_OUTPUT"
 echo "apply_args=${FINAL_APPLY_ARGS}" >> "$GITHUB_OUTPUT"
