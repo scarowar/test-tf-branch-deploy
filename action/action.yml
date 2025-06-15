@@ -112,7 +112,7 @@ runs:
     uses: dawidd6/action-download-artifact@ac66b43f0e6a346234dd65d4d0c8fbb31cb316e5
     with:
       github_token: ${{ inputs.github-token }}
-      workflow: ${{ github.workflow }}
+      workflow_search: true
       pr: ${{ github.event.issue.number }}
       name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
       path: ${{ inputs.working-directory }}
