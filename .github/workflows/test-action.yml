@@ -1,20 +1,23 @@
 name: 'Test Terrachops Action'
 
 on:
-  issue_comment:
-    types: [created]
+    issue_comment:
+        types: [created]
 
 permissions:
-  pull-requests: write
-  contents: write
-  deployments: write
+    pull-requests: write
+    contents: write
+    deployments: write
 
 jobs:
   test:
-    if: ${{ github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Run Terrachops
         uses: ./action
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+            github-token: ${{ secrets.GITHUB_TOKEN }}
+            working-directory: './test-infra'
