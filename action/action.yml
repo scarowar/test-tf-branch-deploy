@@ -23,3 +23,21 @@ runs:
     uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
     with:
       terraform_version: ${{ inputs.terraform-version }}
+
+  - name: Terraform Init
+    id: init
+    run: terraform init
+    shell: bash
+    working-directory: ${{ inputs.working-directory }}
+
+  - name: Terraform Format Check
+    id: fmt
+    run: terraform fmt -check
+    shell: bash
+    working-directory: ${{ inputs.working-directory }}
+
+  - name: Terraform Validate
+    id: validate
+    run: terraform validate
+    shell: bash
+    working-directory: ${{ inputs.working-directory }}
