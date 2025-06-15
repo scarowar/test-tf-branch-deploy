@@ -113,7 +113,7 @@ runs:
     with:
       github_token: ${{ inputs.github-token }}
       workflow: ${{ github.workflow }}
-      commit: ${{ steps.branch-deploy.outputs.sha }}
+      pr: ${{ github.event.issue.number }}
       name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
       path: ${{ inputs.working-directory }}
       if_no_artifact_found: 'fail'
