@@ -1,0 +1,4 @@
+# Dummy backend config for dev
+bucket = "my-dev-bucket"
+key    = "terraform.tfstate"
+region = "us-east-1"
