@@ -123,8 +123,6 @@ runs:
     id: rollback
     run: |
       echo "🚨 Performing immediate plan and apply for stable branch rollback."
-      # The 'set +e' and 'set -e' lines ensure the step continues even if terraform apply fails,
-      # so the final status comment can be posted.
       set +e
       terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -out=rollback.plan
       terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan
@@ -215,7 +213,9 @@ runs:
       fi
 
       echo "Found tag: $TAG"
-      RUN_ID=$(echo "$TAG" | cut -d'/' -f3)
+      RUN_ID=$(echo "$TAG" | awk -F/ '{print $4}')
+
+      echo "Extracted RUN_ID: $RUN_ID"
       echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
     shell: bash
 
