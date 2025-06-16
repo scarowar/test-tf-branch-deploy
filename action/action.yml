@@ -204,11 +204,6 @@ runs:
       id: plan
       shell: bash
       run: |
-        echo "[DEBUG] PWD: $(pwd)"
-        echo "[DEBUG] Listing files in working dir:"
-        ls -l .
-        echo "[DEBUG] Listing files two levels up:"
-        ls -l ../../
         set -euo pipefail
         terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary > tfplan.txt
         mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
@@ -221,6 +216,7 @@ runs:
         else
           cp tfplan.txt $PLAN_COMMENT
         fi
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: Terratrash Filter Plan Output
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -344,6 +340,7 @@ runs:
         else
           cp apply_output.txt $APPLY_COMMENT
         fi
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: Terratrash Filter Apply Output
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
