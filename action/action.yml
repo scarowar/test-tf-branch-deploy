@@ -204,6 +204,11 @@ runs:
       id: plan
       shell: bash
       run: |
+        echo "[DEBUG] PWD: $(pwd)"
+        echo "[DEBUG] Listing files in working dir:"
+        ls -l .
+        echo "[DEBUG] Listing files two levels up:"
+        ls -l ../../
         set -euo pipefail
         terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary > tfplan.txt
         mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
