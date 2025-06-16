@@ -377,4 +377,3 @@ runs:
       with:
         name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
         path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
