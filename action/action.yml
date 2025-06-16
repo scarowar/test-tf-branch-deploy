@@ -167,8 +167,8 @@ runs:
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       uses: GrantBirki/terratrash-action@v1.0.0
       with:
-        input_file: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
-        output_file: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
+        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
+        output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
 
     - name: Truncate and Set DEPLOY_MESSAGE for Rollback
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
@@ -205,7 +205,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary > tfplan.txt
+        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary | tee tfplan.txt
         mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
         # Truncate tfplan.txt if too large for PR comment (GitHub max 65536 chars)
         MAX_COMMENT_SIZE=64000
@@ -223,8 +223,8 @@ runs:
       id: terratrash_plan
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
-        input_file: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
-        output_file: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
+        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
+        output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
 
     - name: Truncate Filtered Plan Output for PR Comment
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -347,8 +347,8 @@ runs:
       id: terratrash_apply
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
-        input_file: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
-        output_file: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
+        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
+        output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
 
     - name: Truncate Filtered Apply Output for PR Comment
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
