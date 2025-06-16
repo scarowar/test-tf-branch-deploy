@@ -172,10 +172,11 @@ runs:
 
     - name: Truncate and Set DEPLOY_MESSAGE for Rollback
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      shell: bash
       run: |
         MAX_COMMENT_SIZE=64000
-        FILTERED_APPLY="${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt"
-        FILTERED_APPLY_TRUNC="${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt"
+        FILTERED_APPLY=rollback_apply.filtered.txt
+        FILTERED_APPLY_TRUNC=rollback_apply.filtered.trunc.txt
         if [ -f "$FILTERED_APPLY" ] && [ $(wc -c < "$FILTERED_APPLY") -gt $MAX_COMMENT_SIZE ]; then
           head -c $MAX_COMMENT_SIZE "$FILTERED_APPLY" > "$FILTERED_APPLY_TRUNC"
           echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_APPLY_TRUNC"
@@ -189,7 +190,6 @@ runs:
         else
           echo 'DEPLOY_MESSAGE=Rollback completed, but no output available.' >> $GITHUB_ENV
         fi
-      shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: Upload Rollback Apply Output Artifact
@@ -231,9 +231,9 @@ runs:
       shell: bash
       run: |
         MAX_COMMENT_SIZE=64000
-        FILTERED_PLAN=${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
-        FILTERED_PLAN_TRUNC=${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt
-        if [ $(wc -c < "$FILTERED_PLAN") -gt $MAX_COMMENT_SIZE ]; then
+        FILTERED_PLAN=tfplan.filtered.txt
+        FILTERED_PLAN_TRUNC=tfplan.filtered.trunc.txt
+        if [ -f "$FILTERED_PLAN" ] && [ $(wc -c < "$FILTERED_PLAN") -gt $MAX_COMMENT_SIZE ]; then
           head -c $MAX_COMMENT_SIZE "$FILTERED_PLAN" > "$FILTERED_PLAN_TRUNC"
           echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_PLAN_TRUNC"
         else
@@ -355,9 +355,9 @@ runs:
       shell: bash
       run: |
         MAX_COMMENT_SIZE=64000
-        FILTERED_APPLY=${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
-        FILTERED_APPLY_TRUNC=${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt
-        if [ $(wc -c < "$FILTERED_APPLY") -gt $MAX_COMMENT_SIZE ]; then
+        FILTERED_APPLY=apply_output.filtered.txt
+        FILTERED_APPLY_TRUNC=apply_output.filtered.trunc.txt
+        if [ -f "$FILTERED_APPLY" ] && [ $(wc -c < "$FILTERED_APPLY") -gt $MAX_COMMENT_SIZE ]; then
           head -c $MAX_COMMENT_SIZE "$FILTERED_APPLY" > "$FILTERED_APPLY_TRUNC"
           echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_APPLY_TRUNC"
         else
