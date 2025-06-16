@@ -160,43 +160,44 @@ runs:
         echo "🚨 Performing immediate plan and apply for stable branch rollback."
         terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=rollback.plan > rollback_plan.txt
         terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan -no-color | tee rollback_apply.txt
-        # Install terratrash CLI if not present
-        if ! command -v terratrash &> /dev/null; then
-          curl -sSL https://github.com/GrantBirki/terratrash/releases/download/v0.7.0/terratrash-linux-amd64 -o /usr/local/bin/terratrash
-          chmod +x /usr/local/bin/terratrash
-        fi
-        # Filter plan output
-        terratrash --input-file rollback_plan.txt --output-file rollback_plan.filtered.txt
-        # Filter apply output
-        terratrash --input-file rollback_apply.txt --output-file rollback_apply.filtered.txt
-        # Truncate filtered outputs if needed
+      shell: bash
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+
+    - name: Terratrash Filter Rollback Apply Output
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      uses: GrantBirki/terratrash-action@v1.0.0
+      with:
+        input_file: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
+        output_file: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
+
+    - name: Truncate and Set DEPLOY_MESSAGE for Rollback
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      run: |
         MAX_COMMENT_SIZE=64000
-        for f in rollback_plan.filtered.txt rollback_apply.filtered.txt; do
-          if [ -f "$f" ] && [ $(wc -c < "$f") -gt $MAX_COMMENT_SIZE ]; then
-            head -c $MAX_COMMENT_SIZE "$f" > "$f.trunc"
-            echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$f.trunc"
-          else
-            cp "$f" "$f.trunc"
-          fi
-        done
-        # Set DEPLOY_MESSAGE to filtered+truncated apply output (preferred), fallback to plan if missing
-        if [ -s rollback_apply.filtered.txt.trunc ]; then
+        FILTERED_APPLY="${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt"
+        FILTERED_APPLY_TRUNC="${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt"
+        if [ -f "$FILTERED_APPLY" ] && [ $(wc -c < "$FILTERED_APPLY") -gt $MAX_COMMENT_SIZE ]; then
+          head -c $MAX_COMMENT_SIZE "$FILTERED_APPLY" > "$FILTERED_APPLY_TRUNC"
+          echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_APPLY_TRUNC"
+        else
+          cp "$FILTERED_APPLY" "$FILTERED_APPLY_TRUNC"
+        fi
+        if [ -s "$FILTERED_APPLY_TRUNC" ]; then
           echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
-          cat rollback_apply.filtered.txt.trunc >> $GITHUB_ENV
-          echo 'EOF' >> $GITHUB_ENV
-        elif [ -s rollback_plan.filtered.txt.trunc ]; then
-          echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
-          cat rollback_plan.filtered.txt.trunc >> $GITHUB_ENV
+          cat "$FILTERED_APPLY_TRUNC" >> $GITHUB_ENV
           echo 'EOF' >> $GITHUB_ENV
         else
           echo 'DEPLOY_MESSAGE=Rollback completed, but no output available.' >> $GITHUB_ENV
         fi
-        # Capture the exit code of the apply command
-        TF_EXIT_CODE=${PIPESTATUS[0]}
-        set -e
-        exit $TF_EXIT_CODE
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+
+    - name: Upload Rollback Apply Output Artifact
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      uses: actions/upload-artifact@v4
+      with:
+        name: rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
 
     - name: Terraform Plan
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -219,7 +220,7 @@ runs:
     - name: Terratrash Filter Plan Output
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       id: terratrash_plan
-      uses: GrantBirki/terratrash-action@v1.2.0
+      uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
         input_file: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
         output_file: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
@@ -342,7 +343,7 @@ runs:
     - name: Terratrash Filter Apply Output
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: terratrash_apply
-      uses: GrantBirki/terratrash-action@v1.2.0
+      uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
         input_file: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
         output_file: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
