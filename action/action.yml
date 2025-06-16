@@ -1,255 +1,280 @@
-name: 'Terrachops'
-description: 'A reusable composite action for streamlined, IssueOps-driven Terraform deployments.'
-author: 'Scarowar'
+name: "Terrachops"
+description: "A reusable composite action for streamlined, IssueOps-driven Terraform deployments."
+author: "Scarowar"
 
 branding:
-  icon: 'terminal'
-  color: 'purple'
+  icon: "terminal"
+  color: "purple"
 
 inputs:
   github-token:
-    description: 'The GitHub token for authentication.'
+    description: "The GitHub token for authentication."
     required: true
   terraform-version:
-    description: 'The version of Terraform to install.'
+    description: "The version of Terraform to install."
     required: false
-    default: 'latest'
+    default: "latest"
   working-directory:
-    description: 'The path to the Terraform code.'
+    description: "The path to the Terraform code."
     required: false
-    default: '.'
+    default: "."
   noop-trigger:
-    description: 'The comment trigger for a terraform plan.'
+    description: "The comment trigger for a terraform plan."
     required: false
-    default: '.tf plan'
+    default: ".tf plan"
   trigger:
-    description: 'The comment trigger for a terraform apply.'
+    description: "The comment trigger for a terraform apply."
     required: false
-    default: '.tf apply'
+    default: ".tf apply"
   stable_branch:
-    description: 'The name of the stable branch for rollback deployments.'
+    description: "The name of the stable branch for rollback deployments."
     required: false
-    default: 'main'
+    default: "main"
   skip-sparse-checkout:
-    description: 'Skip the sparse checkout step (for local testing)'
+    description: "Skip the sparse checkout step (for local testing)"
     required: false
-    default: 'false'
+    default: "false"
+  log-level:
+    description: "Set the logging level for the action. (DEBUG, INFO, WARNING, ERROR)"
+    required: false
+    default: "INFO"
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
-  - name: Checkout Config File
-    if: inputs.skip-sparse-checkout != 'true'
-    uses: actions/checkout@v4
-    with:
-      sparse-checkout: |
-        .terrachops.yml
-      sparse-checkout-cone-mode: false
-      ref: ${{ github.event.repository.default_branch }}
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.x"
+    - name: Install yq
+      run: |
+        YQ_VERSION="v4.44.1"
+        ARCH=$(uname -m)
+        if [ "$ARCH" = "x86_64" ]; then ARCH=amd64; fi
+        wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}"
+        chmod +x /usr/local/bin/yq
+        yq --version
+      shell: bash
 
-  - name: Pre-flight Checks
-    id: preflight
-    run: |
-      if [ -f ".terrachops.yml" ]; then
-        ENVS=$(yq e '.environments | keys | .[]' .terrachops.yml | tr '\n' ',' | sed 's/,$//')
-        echo "Discovered environments: $ENVS"
-        echo "available_envs=${ENVS}" >> "$GITHUB_OUTPUT"
-      else
-        echo "available_envs=" >> "$GITHUB_OUTPUT"
-      fi
-    shell: bash
+    - name: Checkout Config File
+      if: inputs.skip-sparse-checkout != 'true'
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          .terrachops.yml
+        sparse-checkout-cone-mode: false
+        ref: ${{ github.event.repository.default_branch }}
 
-  - name: 'IssueOps Command Dispatcher'
-    id: branch-deploy
-    uses: github/branch-deploy@e837cad62fcc6f5f45997baafd69c57ea9b0641d
-    with:
-      github_token: ${{ inputs.github-token }}
-      noop_trigger: ${{ inputs.noop-trigger }}
-      trigger: ${{ inputs.trigger }}
-      environment_targets: "${{ steps.preflight.outputs.available_envs || 'production' }}"
-      stable_branch: ${{ inputs.stable_branch }}
+    - name: Pre-flight Checks
+      id: preflight
+      run: |
+        if [ -f ".terrachops.yml" ]; then
+          ENVS=$(yq e '.environments | keys | .[]' .terrachops.yml | tr '\n' ',' | sed 's/,$//')
+          echo "Discovered environments: $ENVS"
+          echo "available_envs=${ENVS}" >> "$GITHUB_OUTPUT"
+        else
+          echo "available_envs=" >> "$GITHUB_OUTPUT"
+        fi
+      shell: bash
 
-  - name: Checkout Code
-    if: steps.branch-deploy.outputs.continue == 'true'
-    uses: actions/checkout@v4
-    with:
-      ref: ${{ steps.branch-deploy.outputs.sha }}
-      fetch-depth: 0
+    - name: "IssueOps Command Dispatcher"
+      id: branch-deploy
+      uses: github/branch-deploy@e837cad62fcc6f5f45997baafd69c57ea9b0641d
+      with:
+        github_token: ${{ inputs.github-token }}
+        noop_trigger: ${{ inputs.noop-trigger }}
+        trigger: ${{ inputs.trigger }}
+        environment_targets: "${{ steps.preflight.outputs.available_envs || 'production' }}"
+        stable_branch: ${{ inputs.stable_branch }}
 
-  - name: Ensure prepare-terrachops.sh is executable
-    if: steps.branch-deploy.outputs.continue == 'true'
-    run: chmod +x ${{ github.action_path }}/scripts/prepare-terrachops.sh
-    shell: bash
+    - name: Checkout Code
+      if: steps.branch-deploy.outputs.continue == 'true'
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ steps.branch-deploy.outputs.sha }}
+        fetch-depth: 0
 
-  - name: Prepare Terrachops Commands
-    if: steps.branch-deploy.outputs.continue == 'true'
-    id: prepare_cmds
-    run: |
-      ${{ github.action_path }}/scripts/prepare-terrachops.sh \
-        "${{ inputs.working-directory }}" \
-        "${{ steps.branch-deploy.outputs.environment }}" \
-        "${{ steps.branch-deploy.outputs.params }}"
-    shell: bash
+    - name: Ensure prepare_terrachops.py is executable
+      if: steps.branch-deploy.outputs.continue == 'true'
+      run: chmod +x ${{ github.action_path }}/scripts/prepare_terrachops.py
+      shell: bash
 
-  - name: Setup Terraform
-    if: steps.branch-deploy.outputs.continue == 'true'
-    uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
-    with:
-      terraform_version: ${{ inputs.terraform-version }}
+    - name: Prepare Terrachops Commands
+      if: steps.branch-deploy.outputs.continue == 'true'
+      id: prepare_cmds
+      env:
+        LOG_LEVEL: ${{ inputs.log-level }}
+      run: |
+        pip install -r ${{ github.action_path }}/scripts/requirements.txt
 
-  - name: Terraform Init
-    if: steps.branch-deploy.outputs.continue == 'true'
-    id: init
-    run: terraform init ${{ steps.prepare_cmds.outputs.init_args }}
-    shell: bash
-    working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+        python ${{ github.action_path }}/scripts/prepare_terrachops.py \
+          "${{ inputs.working-directory }}" \
+          "${{ steps.branch-deploy.outputs.environment }}" \
+          "${{ steps.branch-deploy.outputs.params }}"
+      shell: bash
 
-  - name: Terraform Format Check
-    if: steps.branch-deploy.outputs.continue == 'true'
-    id: fmt
-    run: terraform fmt -check
-    shell: bash
-    working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+    - name: Setup Terraform
+      if: steps.branch-deploy.outputs.continue == 'true'
+      uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
 
-  - name: Terraform Validate
-    if: steps.branch-deploy.outputs.continue == 'true'
-    id: validate
-    run: terraform validate
-    shell: bash
-    working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+    - name: Terraform Init
+      if: steps.branch-deploy.outputs.continue == 'true'
+      id: init
+      run: terraform init ${{ steps.prepare_cmds.outputs.init_args }}
+      shell: bash
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-  - name: Rollback Plan and Apply
-    if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-    id: rollback
-    run: |
-      echo "🚨 Performing immediate plan and apply for stable branch rollback."
-      set +e
-      terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -out=rollback.plan
-      terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan
-      # Capture the exit code of the apply command
-      TF_EXIT_CODE=$?
-      set -e
-      exit $TF_EXIT_CODE
-    shell: bash
-    working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+    - name: Terraform Format Check
+      if: steps.branch-deploy.outputs.continue == 'true'
+      id: fmt
+      run: terraform fmt -check
+      shell: bash
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-  - name: Update PR with Rollback Result
-    if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-    uses: peter-evans/create-or-update-comment@v4
-    with:
-      token: ${{ inputs.github-token }}
-      issue-number: ${{ github.event.issue.number }}
-      body: |
-        ### 🚨 Rollback Apply Complete
-        **Result:** `${{ steps.rollback.outcome }}`
-        A rollback to the `${{ inputs.stable_branch }}` branch has been attempted.
+    - name: Terraform Validate
+      if: steps.branch-deploy.outputs.continue == 'true'
+      id: validate
+      run: terraform validate
+      shell: bash
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-  - name: Terraform Plan
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-    id: plan
-    shell: bash
-    run: |
-      terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary > tfplan.txt
-      mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
-    working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+    - name: Rollback Plan and Apply
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      id: rollback
+      run: |
+        echo "🚨 Performing immediate plan and apply for stable branch rollback."
+        set +e
+        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -out=rollback.plan
+        terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan
+        # Capture the exit code of the apply command
+        TF_EXIT_CODE=$?
+        set -e
+        exit $TF_EXIT_CODE
+      shell: bash
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-  - name: Upload Plan Text Artifact
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-    uses: actions/upload-artifact@v4
-    with:
-      name: terraform-plan-txt-${{ steps.branch-deploy.outputs.sha }}
-      path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
+    - name: Update PR with Rollback Result
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        token: ${{ inputs.github-token }}
+        issue-number: ${{ github.event.issue.number }}
+        body: |
+          ### 🚨 Rollback Apply Complete
+          **Result:** `${{ steps.rollback.outcome }}`
+          A rollback to the `${{ inputs.stable_branch }}` branch has been attempted.
 
-  - name: Upload Plan Binary Artifact
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-    uses: actions/upload-artifact@v4
-    with:
-      name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
-      path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
+    - name: Terraform Plan
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      id: plan
+      shell: bash
+      run: |
+        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary > tfplan.txt
+        mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-  - name: Tag Commit with Plan Run ID
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-    env:
-      GH_TOKEN: ${{ inputs.github-token }}
-    run: |
-      TAG_NAME="terrachops/plan/${{ steps.branch-deploy.outputs.environment }}/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
-      TAG_MESSAGE="Terrachops plan artifact from run ${{ github.run_id }}. Triggered by @${{ github.actor }} on $(date -u)."
+    - name: Upload Plan Text Artifact
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan-txt-${{ steps.branch-deploy.outputs.sha }}
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
 
-      if git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; then
-        echo "Overwriting existing plan tag for this commit."
-      fi
+    - name: Upload Plan Binary Artifact
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
 
-      echo "Creating git tag: $TAG_NAME"
-      git config user.name "github-actions[bot]"
-      git config user.email "github-actions[bot]@users.noreply.github.com"
-      git tag -f "$TAG_NAME" "${{ steps.branch-deploy.outputs.sha }}" -m "$TAG_MESSAGE"
-      git push -f origin "refs/tags/$TAG_NAME"
-    shell: bash
+    - name: Tag Commit with Plan Run ID
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        TAG_NAME="terrachops/plan/${{ steps.branch-deploy.outputs.environment }}/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
+        TAG_MESSAGE="Terrachops plan artifact from run ${{ github.run_id }}. Triggered by @${{ github.actor }} on $(date -u)."
 
-  - name: Create Plan Comment
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-    uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-    with:
-      token: ${{ inputs.github-token }}
-      issue-number: ${{ github.event.issue.number }}
-      body: |
-        ### Terraform Plan
+        if git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; then
+          echo "Overwriting existing plan tag for this commit."
+        fi
 
-        ```terraform
-        ${{ steps.plan.outputs.stdout }}
-        ```
+        echo "Creating git tag: $TAG_NAME"
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag -f "$TAG_NAME" "${{ steps.branch-deploy.outputs.sha }}" -m "$TAG_MESSAGE"
+        if ! git push -f origin "refs/tags/$TAG_NAME"; then
+          echo "::error::Failed to push git tag. Ensure the workflow has 'contents: write' permission."
+          exit 1
+        fi
+      shell: bash
 
-  - name: Find Plan Run ID from Git Tag
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-    id: find_run_id
-    run: |
-      git fetch --tags
-      COMMIT_SHA="${{ steps.branch-deploy.outputs.sha }}"
-      TARGET_ENV="${{ steps.branch-deploy.outputs.environment }}"
-      TAG=$(git for-each-ref "refs/tags/terrachops/plan/${TARGET_ENV}/*/${COMMIT_SHA}" --sort=-creatordate --format='%(refname:short)' | head -n 1)
-      if [ -z "$TAG" ]; then
-        echo "::error::No Terrachops plan tag found for commit $COMMIT_SHA in environment '$TARGET_ENV'. Please run '.tf plan to $TARGET_ENV' first."
-        exit 1
-      fi
+    - name: Create Plan Comment
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
+      with:
+        token: ${{ inputs.github-token }}
+        issue-number: ${{ github.event.issue.number }}
+        body: |
+          ### Terraform Plan
 
-      echo "Found tag: $TAG"
-      RUN_ID=$(echo "$TAG" | awk -F/ '{print $4}')
+          ```terraform
+          ${{ steps.plan.outputs.stdout }}
+          ```
 
-      echo "Extracted RUN_ID: $RUN_ID"
-      echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
-    shell: bash
+    - name: Find Plan Run ID from Git Tag
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      id: find_run_id
+      run: |
+        git fetch --tags
+        COMMIT_SHA="${{ steps.branch-deploy.outputs.sha }}"
+        TARGET_ENV="${{ steps.branch-deploy.outputs.environment }}"
+        TAG=$(git for-each-ref "refs/tags/terrachops/plan/${TARGET_ENV}/*/${COMMIT_SHA}" --sort=-creatordate --format='%(refname:short)' | head -n 1)
+        if [ -z "$TAG" ]; then
+          echo "::error::No Terrachops plan tag found for commit $COMMIT_SHA in environment '$TARGET_ENV'. Please run '.tf plan to $TARGET_ENV' first."
+          exit 1
+        fi
 
-  - name: Download Plan Artifact
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-    uses: actions/download-artifact@v4
-    with:
-      github-token: ${{ inputs.github-token }}
-      run-id: ${{ steps.find_run_id.outputs.run_id }}
-      name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
-      path: ${{ steps.prepare_cmds.outputs.working_dir }}
+        echo "Found tag: $TAG"
+        RUN_ID=$(echo "$TAG" | awk -F/ '{print $4}')
 
-  - name: Terraform Apply
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-    id: apply
-    shell: bash
-    run: terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
-    working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+        echo "Extracted RUN_ID: $RUN_ID"
+        echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+      shell: bash
 
-  - name: Update PR with Apply Result
-    if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-    uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-    with:
-      token: ${{ inputs.github-token }}
-      issue-number: ${{ github.event.issue.number }}
-      body: |
-        ### Terraform Apply Complete
+    - name: Download Plan Artifact
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      uses: actions/download-artifact@v4
+      with:
+        github-token: ${{ inputs.github-token }}
+        run-id: ${{ steps.find_run_id.outputs.run_id }}
+        name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-        **Result:** `${{ steps.apply.outcome }}`
+    - name: Terraform Apply
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      id: apply
+      shell: bash
+      run: terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-        <details><summary>Show Apply Output</summary>
+    - name: Update PR with Apply Result
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
+      with:
+        token: ${{ inputs.github-token }}
+        issue-number: ${{ github.event.issue.number }}
+        body: |
+          ### Terraform Apply Complete
 
-        ```
-        ${{ steps.apply.outputs.stdout }}
-        ```
+          **Result:** `${{ steps.apply.outcome }}`
 
-        </details>
+          <details><summary>Show Apply Output</summary>
+
+          ```
+          ${{ steps.apply.outputs.stdout }}
+          ```
+
+          </details>
