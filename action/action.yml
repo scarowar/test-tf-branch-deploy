@@ -246,7 +246,7 @@ runs:
       shell: bash
       run: |
         echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
-        cat ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt >> $GITHUB_ENV
+        cat tfplan.filtered.trunc.txt >> $GITHUB_ENV
         echo 'EOF' >> $GITHUB_ENV
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
@@ -370,7 +370,7 @@ runs:
       shell: bash
       run: |
         echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
-        cat ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt >> $GITHUB_ENV
+        cat apply_output.filtered.trunc.txt >> $GITHUB_ENV
         echo 'EOF' >> $GITHUB_ENV
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
