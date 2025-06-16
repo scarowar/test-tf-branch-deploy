@@ -1,4 +1,5 @@
 name: "Terrachops"
+
 description: "A reusable composite action for streamlined, IssueOps-driven Terraform deployments."
 author: "Scarowar"
 
@@ -48,6 +49,7 @@ runs:
         python-version: "3.x"
     - name: Install yq
       run: |
+        set -euo pipefail
         YQ_VERSION="v4.44.1"
         ARCH=$(uname -m)
         if [ "$ARCH" = "x86_64" ]; then ARCH=amd64; fi
@@ -68,6 +70,7 @@ runs:
     - name: Pre-flight Checks
       id: preflight
       run: |
+        set -euo pipefail
         if [ -f ".terrachops.yml" ]; then
           ENVS=$(yq e '.environments | keys | .[]' .terrachops.yml | tr '\n' ',' | sed 's/,$//')
           echo "Discovered environments: $ENVS"
@@ -96,7 +99,9 @@ runs:
 
     - name: Ensure prepare_terrachops.py is executable
       if: steps.branch-deploy.outputs.continue == 'true'
-      run: chmod +x ${{ github.action_path }}/scripts/prepare_terrachops.py
+      run: |
+        set -euo pipefail
+        chmod +x ${{ github.action_path }}/scripts/prepare_terrachops.py
       shell: bash
 
     - name: Prepare Terrachops Commands
@@ -105,6 +110,7 @@ runs:
       env:
         LOG_LEVEL: ${{ inputs.log-level }}
       run: |
+        set -euo pipefail
         pip install -r ${{ github.action_path }}/scripts/requirements.txt
 
         python ${{ github.action_path }}/scripts/prepare_terrachops.py \
@@ -122,21 +128,27 @@ runs:
     - name: Terraform Init
       if: steps.branch-deploy.outputs.continue == 'true'
       id: init
-      run: terraform init ${{ steps.prepare_cmds.outputs.init_args }}
+      run: |
+        set -euo pipefail
+        terraform init ${{ steps.prepare_cmds.outputs.init_args }}
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: Terraform Format Check
       if: steps.branch-deploy.outputs.continue == 'true'
       id: fmt
-      run: terraform fmt -check
+      run: |
+        set -euo pipefail
+        terraform fmt -check
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: Terraform Validate
       if: steps.branch-deploy.outputs.continue == 'true'
       id: validate
-      run: terraform validate
+      run: |
+        set -euo pipefail
+        terraform validate
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
@@ -144,35 +156,96 @@ runs:
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       id: rollback
       run: |
+        set -euo pipefail
         echo "🚨 Performing immediate plan and apply for stable branch rollback."
-        set +e
-        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -out=rollback.plan
-        terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan
+        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=rollback.plan > rollback_plan.txt
+        terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan -no-color | tee rollback_apply.txt
+        # Install terratrash CLI if not present
+        if ! command -v terratrash &> /dev/null; then
+          curl -sSL https://github.com/GrantBirki/terratrash/releases/download/v0.7.0/terratrash-linux-amd64 -o /usr/local/bin/terratrash
+          chmod +x /usr/local/bin/terratrash
+        fi
+        # Filter plan output
+        terratrash --input-file rollback_plan.txt --output-file rollback_plan.filtered.txt
+        # Filter apply output
+        terratrash --input-file rollback_apply.txt --output-file rollback_apply.filtered.txt
+        # Truncate filtered outputs if needed
+        MAX_COMMENT_SIZE=64000
+        for f in rollback_plan.filtered.txt rollback_apply.filtered.txt; do
+          if [ -f "$f" ] && [ $(wc -c < "$f") -gt $MAX_COMMENT_SIZE ]; then
+            head -c $MAX_COMMENT_SIZE "$f" > "$f.trunc"
+            echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$f.trunc"
+          else
+            cp "$f" "$f.trunc"
+          fi
+        done
+        # Set DEPLOY_MESSAGE to filtered+truncated apply output (preferred), fallback to plan if missing
+        if [ -s rollback_apply.filtered.txt.trunc ]; then
+          echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
+          cat rollback_apply.filtered.txt.trunc >> $GITHUB_ENV
+          echo 'EOF' >> $GITHUB_ENV
+        elif [ -s rollback_plan.filtered.txt.trunc ]; then
+          echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
+          cat rollback_plan.filtered.txt.trunc >> $GITHUB_ENV
+          echo 'EOF' >> $GITHUB_ENV
+        else
+          echo 'DEPLOY_MESSAGE=Rollback completed, but no output available.' >> $GITHUB_ENV
+        fi
         # Capture the exit code of the apply command
-        TF_EXIT_CODE=$?
+        TF_EXIT_CODE=${PIPESTATUS[0]}
         set -e
         exit $TF_EXIT_CODE
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
-
-    - name: Update PR with Rollback Result
-      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-      uses: peter-evans/create-or-update-comment@v4
-      with:
-        token: ${{ inputs.github-token }}
-        issue-number: ${{ github.event.issue.number }}
-        body: |
-          ### 🚨 Rollback Apply Complete
-          **Result:** `${{ steps.rollback.outcome }}`
-          A rollback to the `${{ inputs.stable_branch }}` branch has been attempted.
 
     - name: Terraform Plan
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       id: plan
       shell: bash
       run: |
+        set -euo pipefail
         terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary > tfplan.txt
         mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
+        # Truncate tfplan.txt if too large for PR comment (GitHub max 65536 chars)
+        MAX_COMMENT_SIZE=64000
+        PLAN_COMMENT=plan_comment.txt
+        if [ $(wc -c < tfplan.txt) -gt $MAX_COMMENT_SIZE ]; then
+          head -c $MAX_COMMENT_SIZE tfplan.txt > $PLAN_COMMENT
+          echo "\n---\n:warning: Output truncated. See full plan in artifact." >> $PLAN_COMMENT
+        else
+          cp tfplan.txt $PLAN_COMMENT
+        fi
+
+    - name: Terratrash Filter Plan Output
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      id: terratrash_plan
+      uses: GrantBirki/terratrash-action@v1.2.0
+      with:
+        input_file: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
+        output_file: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
+
+    - name: Truncate Filtered Plan Output for PR Comment
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      shell: bash
+      run: |
+        MAX_COMMENT_SIZE=64000
+        FILTERED_PLAN=${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
+        FILTERED_PLAN_TRUNC=${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt
+        if [ $(wc -c < "$FILTERED_PLAN") -gt $MAX_COMMENT_SIZE ]; then
+          head -c $MAX_COMMENT_SIZE "$FILTERED_PLAN" > "$FILTERED_PLAN_TRUNC"
+          echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_PLAN_TRUNC"
+        else
+          cp "$FILTERED_PLAN" "$FILTERED_PLAN_TRUNC"
+        fi
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+
+    - name: Set DEPLOY_MESSAGE for Plan
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      shell: bash
+      run: |
+        echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
+        cat ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt >> $GITHUB_ENV
+        echo 'EOF' >> $GITHUB_ENV
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: Upload Plan Text Artifact
@@ -181,6 +254,13 @@ runs:
       with:
         name: terraform-plan-txt-${{ steps.branch-deploy.outputs.sha }}
         path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
+
+    - name: Upload Plan PR Comment Text Artifact
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan-comment-txt-${{ steps.branch-deploy.outputs.sha }}
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}/plan_comment.txt
 
     - name: Upload Plan Binary Artifact
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -194,6 +274,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
+        set -euo pipefail
         TAG_NAME="terrachops/plan/${{ steps.branch-deploy.outputs.environment }}/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
         TAG_MESSAGE="Terrachops plan artifact from run ${{ github.run_id }}. Triggered by @${{ github.actor }} on $(date -u)."
 
@@ -211,23 +292,11 @@ runs:
         fi
       shell: bash
 
-    - name: Create Plan Comment
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-      with:
-        token: ${{ inputs.github-token }}
-        issue-number: ${{ github.event.issue.number }}
-        body: |
-          ### Terraform Plan
-
-          ```terraform
-          ${{ steps.plan.outputs.stdout }}
-          ```
-
     - name: Find Plan Run ID from Git Tag
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: find_run_id
       run: |
+        set -euo pipefail
         git fetch --tags
         COMMIT_SHA="${{ steps.branch-deploy.outputs.sha }}"
         TARGET_ENV="${{ steps.branch-deploy.outputs.environment }}"
@@ -257,24 +326,55 @@ runs:
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: apply
       shell: bash
-      run: terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
+      run: |
+        set -euo pipefail
+        terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve tfplan-${{ steps.branch-deploy.outputs.sha }}.binary | tee apply_output.txt
+        # Truncate apply_output.txt if too large for PR comment
+        MAX_COMMENT_SIZE=64000
+        APPLY_COMMENT=apply_comment.txt
+        if [ $(wc -c < apply_output.txt) -gt $MAX_COMMENT_SIZE ]; then
+          head -c $MAX_COMMENT_SIZE apply_output.txt > $APPLY_COMMENT
+          echo "\n---\n:warning: Output truncated. See full apply log in artifact." >> $APPLY_COMMENT
+        else
+          cp apply_output.txt $APPLY_COMMENT
+        fi
+
+    - name: Terratrash Filter Apply Output
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      id: terratrash_apply
+      uses: GrantBirki/terratrash-action@v1.2.0
+      with:
+        input_file: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
+        output_file: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
+
+    - name: Truncate Filtered Apply Output for PR Comment
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      shell: bash
+      run: |
+        MAX_COMMENT_SIZE=64000
+        FILTERED_APPLY=${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
+        FILTERED_APPLY_TRUNC=${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt
+        if [ $(wc -c < "$FILTERED_APPLY") -gt $MAX_COMMENT_SIZE ]; then
+          head -c $MAX_COMMENT_SIZE "$FILTERED_APPLY" > "$FILTERED_APPLY_TRUNC"
+          echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_APPLY_TRUNC"
+        else
+          cp "$FILTERED_APPLY" "$FILTERED_APPLY_TRUNC"
+        fi
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Update PR with Apply Result
+    - name: Set DEPLOY_MESSAGE for Apply
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
+      shell: bash
+      run: |
+        echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
+        cat ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt >> $GITHUB_ENV
+        echo 'EOF' >> $GITHUB_ENV
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+
+    - name: Upload Apply Output Artifact
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      uses: actions/upload-artifact@v4
       with:
-        token: ${{ inputs.github-token }}
-        issue-number: ${{ github.event.issue.number }}
-        body: |
-          ### Terraform Apply Complete
-
-          **Result:** `${{ steps.apply.outcome }}`
-
-          <details><summary>Show Apply Output</summary>
-
-          ```
-          ${{ steps.apply.outputs.stdout }}
-          ```
-
-          </details>
+        name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
+      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
