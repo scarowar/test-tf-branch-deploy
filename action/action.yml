@@ -80,10 +80,6 @@ runs:
         fi
       shell: bash
 
-    - name: Copy deployment message template
-      run: cp ${{ github.action_path }}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
-      shell: bash
-
     - name: "IssueOps Command Dispatcher"
       id: branch-deploy
       uses: github/branch-deploy@e837cad62fcc6f5f45997baafd69c57ea9b0641d
@@ -122,6 +118,10 @@ runs:
           "${{ inputs.working-directory }}" \
           "${{ steps.branch-deploy.outputs.environment }}" \
           "${{ steps.branch-deploy.outputs.params }}"
+      shell: bash
+
+    - name: Copy deployment message template
+      run: cp ${{ github.action_path }}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       shell: bash
 
     - name: Setup Terraform
