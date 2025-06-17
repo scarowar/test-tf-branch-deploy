@@ -81,7 +81,6 @@ runs:
       shell: bash
 
     - name: Copy deployment message template
-      if: steps.branch-deploy.outputs.continue == 'true'
       run: cp ${{ github.action_path }}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       shell: bash
 
