@@ -1,3 +1,3 @@
-# Terrachops
+# Terrachops Test
 
-An IssueOps-driven GitHub Action for streamlined Terraform workflows
+Test repository for anything and everything related to Terrachops
