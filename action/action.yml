@@ -223,18 +223,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
 
-    - name: Read Results for Rollback
-      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-      id: read_results_rollback
-      run: |
-        FILE="${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt"
-        if [ ! -s "$FILE" ]; then
-          FILE="${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt"
-        fi
-        echo 'results<<EOF' >> $GITHUB_OUTPUT
-        cat "$FILE" >> $GITHUB_OUTPUT
-        echo 'EOF' >> $GITHUB_OUTPUT
-      shell: bash
+    # No need to read results for Terratrash, it will use input_file_path directly
 
     - name: Render Deployment Message with Terratrash (Rollback)
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
@@ -245,7 +234,6 @@ runs:
         erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_rollback_artifact_url.outputs.artifact_url }}
-        results: ${{ steps.read_results_rollback.outputs.results }}
 
     - name: Terraform Plan
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -322,18 +310,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
 
-    - name: Read Results for Plan
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      id: read_results_plan
-      run: |
-        FILE="${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt"
-        if [ ! -s "$FILE" ]; then
-          FILE="${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt"
-        fi
-        echo 'results<<EOF' >> $GITHUB_OUTPUT
-        cat "$FILE" >> $GITHUB_OUTPUT
-        echo 'EOF' >> $GITHUB_OUTPUT
-      shell: bash
+    # No need to read results for Terratrash, it will use input_file_path directly
 
     - name: Render Deployment Message with Terratrash (Plan)
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -344,7 +321,6 @@ runs:
         erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_plan_artifact_url.outputs.artifact_url }}
-        results: ${{ steps.read_results_plan.outputs.results }}
 
     - name: Upload Plan Binary Artifact
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -481,18 +457,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
 
-    - name: Read Results for Apply
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-      id: read_results_apply
-      run: |
-        FILE="${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt"
-        if [ ! -s "$FILE" ]; then
-          FILE="${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt"
-        fi
-        echo 'results<<EOF' >> $GITHUB_OUTPUT
-        cat "$FILE" >> $GITHUB_OUTPUT
-        echo 'EOF' >> $GITHUB_OUTPUT
-      shell: bash
+    # No need to read results for Terratrash, it will use input_file_path directly
 
     - name: Render Deployment Message with Terratrash (Apply)
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
@@ -503,4 +468,3 @@ runs:
         erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_apply_artifact_url.outputs.artifact_url }}
-        results: ${{ steps.read_results_apply.outputs.results }}
