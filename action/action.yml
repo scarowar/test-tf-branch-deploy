@@ -223,6 +223,15 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
 
+    - name: Read Results for Rollback
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      id: read_results_rollback
+      run: |
+        echo 'results<<EOF' >> $GITHUB_OUTPUT
+        cat "${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt" >> $GITHUB_OUTPUT
+        echo 'EOF' >> $GITHUB_OUTPUT
+      shell: bash
+
     - name: Render Deployment Message with Terratrash (Rollback)
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
@@ -232,6 +241,7 @@ runs:
         erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_rollback_artifact_url.outputs.artifact_url }}
+        results: ${{ steps.read_results_rollback.outputs.results }}
 
     - name: Terraform Plan
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -308,6 +318,15 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
 
+    - name: Read Results for Plan
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      id: read_results_plan
+      run: |
+        echo 'results<<EOF' >> $GITHUB_OUTPUT
+        cat "${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt" >> $GITHUB_OUTPUT
+        echo 'EOF' >> $GITHUB_OUTPUT
+      shell: bash
+
     - name: Render Deployment Message with Terratrash (Plan)
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
@@ -317,6 +336,7 @@ runs:
         erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_plan_artifact_url.outputs.artifact_url }}
+        results: ${{ steps.read_results_plan.outputs.results }}
 
     - name: Upload Plan Binary Artifact
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -453,6 +473,15 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
 
+    - name: Read Results for Apply
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      id: read_results_apply
+      run: |
+        echo 'results<<EOF' >> $GITHUB_OUTPUT
+        cat "${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt" >> $GITHUB_OUTPUT
+        echo 'EOF' >> $GITHUB_OUTPUT
+      shell: bash
+
     - name: Render Deployment Message with Terratrash (Apply)
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
@@ -462,3 +491,4 @@ runs:
         erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_apply_artifact_url.outputs.artifact_url }}
+        results: ${{ steps.read_results_apply.outputs.results }}

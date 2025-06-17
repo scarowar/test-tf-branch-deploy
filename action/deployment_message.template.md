@@ -1,19 +1,25 @@
-Terrachops Deployment Results {{ ":white_check_mark:" if status == "success" else ":x:" }}
+# Deployment Results {{ ":white_check_mark:" if status == "success" else ":x:" }}
+
 {% if status == "success" %}
-{{ actor }} successfully {{ "noop " if noop else "" }}deployed branch {{ ref }} to {{ environment }}
+**{{ actor }}** successfully {{ "noop " if noop else "" }}deployed branch `{{ ref }}` to **{{ environment }}**
+{% elif status == "failure" %}
+**{{ actor }}**, your {{ "noop " if noop else "" }}deployment of branch `{{ ref }}` failed to deploy to **{{ environment }}**
+{% else %}
+**{{ actor }}**, your {{ "noop " if noop else "" }}deployment of branch `{{ ref }}` is in an unknown state for **{{ environment }}**.
 {% endif %}
 
-{% if status == "failure" %}
-{{ actor }}, your {{ "noop " if noop else "" }}deployment of branch {{ ref }} failed to deploy to {{ environment }}
-{% endif %}
+---
 
-{% if status == "unknown" %}
-{{ actor }}, your {{ "noop " if noop else "" }}deployment of branch {{ ref }} is in an unknown state when trying to deploy to {{ environment }}.
-{% endif %}
+<details>
+<summary>Show Results</summary>
 
-<details> <summary>Show Results</summary>
-
+{% if results %}
+```
 {{ results }}
+```
+{% else %}
+_No results to display._
+{% endif %}
 
 {% if artifact_url %}
 ---
@@ -21,13 +27,16 @@ Terrachops Deployment Results {{ ":white_check_mark:" if status == "success" els
 {% endif %}
 
 </details>
-Deployment Details
 
-Status: {{ status }}
-Environment: {{ environment }}
-Branch: {{ ref }}
-Commit: {{ sha }}
-Actor: {{ actor }}
-Noop: {{ noop }}
-Duration: {{ total_seconds }} seconds
-Logs: [View Logs]({{ logs }})
+---
+
+| **Key**      | **Value**   |
+|--------------|-------------|
+| Status       | {{ status }} |
+| Env          | {{ environment }} |
+| Branch       | {{ ref }}    |
+| Commit       | {{ sha }}    |
+| Actor        | {{ actor }}  |
+| Noop         | {{ noop }}   |
+| Duration     | {{ total_seconds }} seconds |
+| Logs         | [View Logs]({{ logs }}) |
