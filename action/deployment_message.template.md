@@ -14,7 +14,8 @@
 <%= results %>
 ```
 
-<% if artifact_url && !artifact_url.empty? %>
+
+<% if defined?(artifact_url) && artifact_url && !artifact_url.empty? %>
 :warning: Output truncated. [Download full output here](<%= artifact_url %>)
 <% end %>
 
