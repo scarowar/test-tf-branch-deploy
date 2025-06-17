@@ -80,6 +80,11 @@ runs:
         fi
       shell: bash
 
+    - name: Copy deployment message template
+      if: steps.branch-deploy.outputs.continue == 'true'
+      run: cp ${{ github.action_path }}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+      shell: bash
+
     - name: "IssueOps Command Dispatcher"
       id: branch-deploy
       uses: github/branch-deploy@e837cad62fcc6f5f45997baafd69c57ea9b0641d
@@ -89,6 +94,7 @@ runs:
         trigger: ${{ inputs.trigger }}
         environment_targets: "${{ steps.preflight.outputs.available_envs || 'production' }}"
         stable_branch: ${{ inputs.stable_branch }}
+        deploy_message_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
 
     - name: Checkout Code
       if: steps.branch-deploy.outputs.continue == 'true'
@@ -165,39 +171,68 @@ runs:
 
     - name: Terratrash Filter Rollback Apply Output
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-      uses: GrantBirki/terratrash-action@v1.0.0
+      uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
         input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
         output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
 
-    - name: Truncate and Set DEPLOY_MESSAGE for Rollback
+    - name: Truncate Filtered Rollback Apply Output for PR Comment
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      id: truncate_rollback
       shell: bash
       run: |
         MAX_COMMENT_SIZE=64000
         FILTERED_APPLY=rollback_apply.filtered.txt
         FILTERED_APPLY_TRUNC=rollback_apply.filtered.trunc.txt
+        ARTIFACT_NEEDED=false
         if [ -f "$FILTERED_APPLY" ] && [ $(wc -c < "$FILTERED_APPLY") -gt $MAX_COMMENT_SIZE ]; then
           head -c $MAX_COMMENT_SIZE "$FILTERED_APPLY" > "$FILTERED_APPLY_TRUNC"
           echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_APPLY_TRUNC"
+          ARTIFACT_NEEDED=true
         else
           cp "$FILTERED_APPLY" "$FILTERED_APPLY_TRUNC"
         fi
-        if [ -s "$FILTERED_APPLY_TRUNC" ]; then
-          echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
-          cat "$FILTERED_APPLY_TRUNC" >> $GITHUB_ENV
-          echo 'EOF' >> $GITHUB_ENV
-        else
-          echo 'DEPLOY_MESSAGE=Rollback completed, but no output available.' >> $GITHUB_ENV
-        fi
+        echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: Upload Rollback Apply Output Artifact
-      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      if: steps.truncate_rollback.outputs.artifact_needed == 'true'
+      id: upload_rollback_artifact
       uses: actions/upload-artifact@v4
       with:
         name: rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
+
+    - name: Get Rollback Artifact URL
+      if: steps.truncate_rollback.outputs.artifact_needed == 'true'
+      id: get_rollback_artifact_url
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const runId = process.env.GITHUB_RUN_ID;
+          const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            run_id: runId
+          });
+          const artifact = artifacts.data.artifacts.find(a => a.name === `rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}`);
+          if (artifact) {
+            core.setOutput('artifact_url', artifact.archive_download_url);
+          } else {
+            core.setOutput('artifact_url', '');
+          }
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+
+    - name: Render Deployment Message with Terratrash (Rollback)
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
+      with:
+        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt
+        erb_render_template: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+      env:
+        artifact_url: ${{ steps.get_rollback_artifact_url.outputs.artifact_url }}
 
     - name: Terraform Plan
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -228,41 +263,61 @@ runs:
 
     - name: Truncate Filtered Plan Output for PR Comment
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      id: truncate_plan
       shell: bash
       run: |
         MAX_COMMENT_SIZE=64000
         FILTERED_PLAN=tfplan.filtered.txt
         FILTERED_PLAN_TRUNC=tfplan.filtered.trunc.txt
+        ARTIFACT_NEEDED=false
         if [ -f "$FILTERED_PLAN" ] && [ $(wc -c < "$FILTERED_PLAN") -gt $MAX_COMMENT_SIZE ]; then
           head -c $MAX_COMMENT_SIZE "$FILTERED_PLAN" > "$FILTERED_PLAN_TRUNC"
           echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_PLAN_TRUNC"
+          ARTIFACT_NEEDED=true
         else
           cp "$FILTERED_PLAN" "$FILTERED_PLAN_TRUNC"
         fi
+        echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Set DEPLOY_MESSAGE for Plan
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      shell: bash
-      run: |
-        echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
-        cat tfplan.filtered.trunc.txt >> $GITHUB_ENV
-        echo 'EOF' >> $GITHUB_ENV
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
-
-    - name: Upload Plan Text Artifact
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+    - name: Upload Plan Output Artifact
+      if: steps.truncate_plan.outputs.artifact_needed == 'true'
+      id: upload_plan_artifact
       uses: actions/upload-artifact@v4
       with:
-        name: terraform-plan-txt-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
+        name: terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
 
-    - name: Upload Plan PR Comment Text Artifact
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      uses: actions/upload-artifact@v4
+    - name: Get Plan Artifact URL
+      if: steps.truncate_plan.outputs.artifact_needed == 'true'
+      id: get_plan_artifact_url
+      uses: actions/github-script@v7
       with:
-        name: terraform-plan-comment-txt-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}/plan_comment.txt
+        script: |
+          const runId = process.env.GITHUB_RUN_ID;
+          const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            run_id: runId
+          });
+          const artifact = artifacts.data.artifacts.find(a => a.name === `terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}`);
+          if (artifact) {
+            core.setOutput('artifact_url', artifact.archive_download_url);
+          } else {
+            core.setOutput('artifact_url', '');
+          }
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+
+    - name: Render Deployment Message with Terratrash (Plan)
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
+      with:
+        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt
+        erb_render_template: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+      env:
+        artifact_url: ${{ steps.get_plan_artifact_url.outputs.artifact_url }}
 
     - name: Upload Plan Binary Artifact
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -342,6 +397,7 @@ runs:
         fi
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
+    # APPLY: Filter, then Truncate, then Render
     - name: Terratrash Filter Apply Output
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: terratrash_apply
@@ -352,31 +408,58 @@ runs:
 
     - name: Truncate Filtered Apply Output for PR Comment
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      id: truncate_apply
       shell: bash
       run: |
         MAX_COMMENT_SIZE=64000
         FILTERED_APPLY=apply_output.filtered.txt
         FILTERED_APPLY_TRUNC=apply_output.filtered.trunc.txt
+        ARTIFACT_NEEDED=false
         if [ -f "$FILTERED_APPLY" ] && [ $(wc -c < "$FILTERED_APPLY") -gt $MAX_COMMENT_SIZE ]; then
           head -c $MAX_COMMENT_SIZE "$FILTERED_APPLY" > "$FILTERED_APPLY_TRUNC"
           echo "\n---\n:warning: Output truncated. See artifact for full details." >> "$FILTERED_APPLY_TRUNC"
+          ARTIFACT_NEEDED=true
         else
           cp "$FILTERED_APPLY" "$FILTERED_APPLY_TRUNC"
         fi
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
-
-    - name: Set DEPLOY_MESSAGE for Apply
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-      shell: bash
-      run: |
-        echo 'DEPLOY_MESSAGE<<EOF' >> $GITHUB_ENV
-        cat apply_output.filtered.trunc.txt >> $GITHUB_ENV
-        echo 'EOF' >> $GITHUB_ENV
+        echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: Upload Apply Output Artifact
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      if: steps.truncate_apply.outputs.artifact_needed == 'true'
+      id: upload_apply_artifact
       uses: actions/upload-artifact@v4
       with:
         name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
+        path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
+
+    - name: Get Apply Artifact URL
+      if: steps.truncate_apply.outputs.artifact_needed == 'true'
+      id: get_apply_artifact_url
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const runId = process.env.GITHUB_RUN_ID;
+          const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            run_id: runId
+          });
+          const artifact = artifacts.data.artifacts.find(a => a.name === `terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}`);
+          if (artifact) {
+            core.setOutput('artifact_url', artifact.archive_download_url);
+          } else {
+            core.setOutput('artifact_url', '');
+          }
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+
+    - name: Render Deployment Message with Terratrash (Apply)
+      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
+      with:
+        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt
+        erb_render_template: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+      env:
+        artifact_url: ${{ steps.get_apply_artifact_url.outputs.artifact_url }}
