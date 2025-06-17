@@ -227,8 +227,12 @@ runs:
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       id: read_results_rollback
       run: |
+        FILE="${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt"
+        if [ ! -s "$FILE" ]; then
+          FILE="${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt"
+        fi
         echo 'results<<EOF' >> $GITHUB_OUTPUT
-        cat "${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt" >> $GITHUB_OUTPUT
+        cat "$FILE" >> $GITHUB_OUTPUT
         echo 'EOF' >> $GITHUB_OUTPUT
       shell: bash
 
@@ -322,8 +326,12 @@ runs:
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       id: read_results_plan
       run: |
+        FILE="${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt"
+        if [ ! -s "$FILE" ]; then
+          FILE="${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt"
+        fi
         echo 'results<<EOF' >> $GITHUB_OUTPUT
-        cat "${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt" >> $GITHUB_OUTPUT
+        cat "$FILE" >> $GITHUB_OUTPUT
         echo 'EOF' >> $GITHUB_OUTPUT
       shell: bash
 
@@ -477,8 +485,12 @@ runs:
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: read_results_apply
       run: |
+        FILE="${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt"
+        if [ ! -s "$FILE" ]; then
+          FILE="${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt"
+        fi
         echo 'results<<EOF' >> $GITHUB_OUTPUT
-        cat "${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt" >> $GITHUB_OUTPUT
+        cat "$FILE" >> $GITHUB_OUTPUT
         echo 'EOF' >> $GITHUB_OUTPUT
       shell: bash
 
