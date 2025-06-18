@@ -86,6 +86,7 @@ runs:
         environment_targets: "${{ steps.preflight.outputs.available_envs || 'production' }}"
         stable_branch: ${{ inputs.stable_branch }}
         deploy_message_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        ignored_checks: "SonarQube,BlackDuck"
 
     - name: "📥 Checkout Code"
       if: steps.branch-deploy.outputs.continue == 'true'
