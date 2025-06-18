@@ -109,6 +109,10 @@ runs:
         LOG_LEVEL: ${{ inputs.log-level }}
       run: |
         set -euo pipefail
+        VENV_DIR=".venv-branch-deploy"
+        python3 -m venv "$VENV_DIR"
+        source "$VENV_DIR/bin/activate"
+        pip install --upgrade pip
         pip install -r ${GITHUB_ACTION_PATH}/scripts/requirements.txt
 
         python ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py \
