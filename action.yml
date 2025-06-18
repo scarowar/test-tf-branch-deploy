@@ -43,6 +43,16 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: "🐍 Ensure python3-venv is installed"
+      if: steps.branch-deploy.outputs.continue == 'true'
+      run: |
+        set -euo pipefail
+        if ! python3 -m venv --help > /dev/null 2>&1; then
+          echo "Installing python3-venv..."
+          sudo apt-get update
+          sudo apt-get install -y python3-venv
+        fi
+      shell: bash
     - name: " Install yq"
       run: |
         set -euo pipefail
