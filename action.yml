@@ -43,11 +43,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: "🐍 Set up Python"
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.x"
-    - name: "🔧 Install yq"
+    - name: " Install yq"
       run: |
         set -euo pipefail
         YQ_VERSION="v4.44.1"
