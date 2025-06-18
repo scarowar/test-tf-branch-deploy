@@ -84,7 +84,7 @@ def process_paths(
                 error_exit(f"Configuration Error: Path '{item}' in '.defaults.{key_name}.paths' must be a string.")
             p = Path(item)
             if not p.exists():
-                error_exit(f"Configuration Error: Default file '{item}' specified in .terrachops.yml not found in repository root.")
+                error_exit(f"Configuration Error: Default file '{item}' specified in .terraform-branch-deploy.yml not found in repository root.")
             relative_path = os.path.relpath(p, working_dir)
             final_paths.append(f"{arg_prefix}{relative_path}")
 
@@ -96,7 +96,7 @@ def process_paths(
             error_exit(f"Configuration Error: Path '{item}' in '.environments.{env_name}.{key_name}.paths' must be a string.")
         p = Path(item)
         if not p.exists():
-            error_exit(f"Configuration Error: Environment file '{item}' specified in .terrachops.yml not found in repository root.")
+            error_exit(f"Configuration Error: Environment file '{item}' specified in .terraform-branch-deploy.yml not found in repository root.")
         relative_path = os.path.relpath(p, working_dir)
         final_paths.append(f"{arg_prefix}{relative_path}")
 
@@ -135,18 +135,18 @@ def main() -> None:
     config_path = Path(".terraform-branch-deploy.yml")
     config: Dict[str, Any] = {}
     if config_path.is_file():
-        log_info(f"✅ Found .terrachops.yml. Parsing configuration for environment: '{env_name}'")
+        log_info(f"✅ Found .terraform-branch-deploy.yml. Parsing configuration for environment: '{env_name}'")
         with open(config_path, 'r') as f:
             try:
                 config = yaml.safe_load(f) or {}
             except yaml.YAMLError as e:
-                error_exit(f"Error parsing .terrachops.yml: {e}")
+                error_exit(f"Error parsing .terraform-branch-deploy.yml: {e}")
     else:
-        log_info("⚠️  No .terrachops.yml found. Using action defaults.")
+        log_info("⚠️  No .terraform-branch-deploy.yml found. Using action defaults.")
 
     # --- Validate Environment ---
     if env_name and env_name != "production" and env_name not in config.get("environments", {}):
-        error_exit(f"Configuration Error: Environment '{env_name}' not found in .terrachops.yml.")
+        error_exit(f"Configuration Error: Environment '{env_name}' not found in .terraform-branch-deploy.yml.")
 
     # --- Determine Working Directory FIRST ---
     working_dir: str = config.get("environments", {}).get(env_name, {}).get("working-directory", default_working_dir)

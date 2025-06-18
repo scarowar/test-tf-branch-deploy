@@ -1,6 +1,6 @@
-name: "Terrachops"
+name: "terraform-branch-deploy"
 
-description: "A reusable composite action for streamlined, IssueOps-driven Terraform deployments."
+description: "A reusable composite action for branch-based, IssueOps-driven Terraform deployments."
 author: "Scarowar"
 
 branding:
@@ -43,11 +43,11 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Set up Python
+    - name: "🐍 Set up Python"
       uses: actions/setup-python@v5
       with:
         python-version: "3.x"
-    - name: Install yq
+    - name: "🔧 Install yq"
       run: |
         set -euo pipefail
         YQ_VERSION="v4.44.1"
@@ -58,21 +58,21 @@ runs:
         yq --version
       shell: bash
 
-    - name: Checkout Config File
+    - name: "📦 Checkout Config File"
       if: inputs.skip-sparse-checkout != 'true'
       uses: actions/checkout@v4
       with:
         sparse-checkout: |
-          .terrachops.yml
+          .terraform-branch-deploy.yml
         sparse-checkout-cone-mode: false
         ref: ${{ github.event.repository.default_branch }}
 
-    - name: Pre-flight Checks
+    - name: "🚦 Pre-flight Checks"
       id: preflight
       run: |
         set -euo pipefail
-        if [ -f ".terrachops.yml" ]; then
-          ENVS=$(yq e '.environments | keys | .[]' .terrachops.yml | tr '\n' ',' | sed 's/,$//')
+        if [ -f ".terraform-branch-deploy.yml" ]; then
+          ENVS=$(yq e '.environments | keys | .[]' .terraform-branch-deploy.yml | tr '\n' ',' | sed 's/,$//')
           echo "Discovered environments: $ENVS"
           echo "available_envs=${ENVS}" >> "$GITHUB_OUTPUT"
         else
@@ -80,7 +80,7 @@ runs:
         fi
       shell: bash
 
-    - name: "IssueOps Command Dispatcher"
+    - name: "🛸 IssueOps Command Dispatcher"
       id: branch-deploy
       uses: github/branch-deploy@e837cad62fcc6f5f45997baafd69c57ea9b0641d
       with:
@@ -91,21 +91,21 @@ runs:
         stable_branch: ${{ inputs.stable_branch }}
         deploy_message_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
 
-    - name: Checkout Code
+    - name: "📥 Checkout Code"
       if: steps.branch-deploy.outputs.continue == 'true'
       uses: actions/checkout@v4
       with:
         ref: ${{ steps.branch-deploy.outputs.sha }}
         fetch-depth: 0
 
-    - name: Ensure prepare_terrachops.py is executable
+    - name: "🔑 Ensure prepare_tf_branch_deploy.py is executable"
       if: steps.branch-deploy.outputs.continue == 'true'
       run: |
         set -euo pipefail
-        chmod +x ${{ github.action_path }}/scripts/prepare_terrachops.py
+        chmod +x ${{ github.action_path }}/scripts/prepare_tf_branch_deploy.py
       shell: bash
 
-    - name: Prepare Terrachops Commands
+    - name: "📝 Prepare terraform-branch-deploy Commands"
       if: steps.branch-deploy.outputs.continue == 'true'
       id: prepare_cmds
       env:
@@ -114,23 +114,23 @@ runs:
         set -euo pipefail
         pip install -r ${{ github.action_path }}/scripts/requirements.txt
 
-        python ${{ github.action_path }}/scripts/prepare_terrachops.py \
+        python ${{ github.action_path }}/scripts/prepare_tf_branch_deploy.py \
           "${{ inputs.working-directory }}" \
           "${{ steps.branch-deploy.outputs.environment }}" \
           "${{ steps.branch-deploy.outputs.params }}"
       shell: bash
 
-    - name: Copy deployment message template
+    - name: "📄 Copy deployment message template"
       run: cp ${{ github.action_path }}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       shell: bash
 
-    - name: Setup Terraform
+    - name: "⚙️ Setup Terraform"
       if: steps.branch-deploy.outputs.continue == 'true'
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
       with:
         terraform_version: ${{ inputs.terraform-version }}
 
-    - name: Terraform Init
+    - name: "🌱 Terraform Init"
       if: steps.branch-deploy.outputs.continue == 'true'
       id: init
       run: |
@@ -139,7 +139,7 @@ runs:
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Terraform Format Check
+    - name: "🧹 Terraform Format Check"
       if: steps.branch-deploy.outputs.continue == 'true'
       id: fmt
       run: |
@@ -148,7 +148,7 @@ runs:
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Terraform Validate
+    - name: "✅ Terraform Validate"
       if: steps.branch-deploy.outputs.continue == 'true'
       id: validate
       run: |
@@ -157,7 +157,7 @@ runs:
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Rollback Plan and Apply
+    - name: "🚨 Rollback Plan and Apply"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       id: rollback
       run: |
@@ -168,14 +168,14 @@ runs:
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Terratrash Filter Rollback Apply Output
+    - name: "🧹 Terratrash Filter Rollback Apply Output"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
         input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
         output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
 
-    - name: Truncate Filtered Rollback Apply Output for PR Comment
+    - name: "✂️ Truncate Filtered Rollback Apply Output for PR Comment"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       id: truncate_rollback
       shell: bash
@@ -194,7 +194,7 @@ runs:
         echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Upload Rollback Apply Output Artifact
+    - name: "📤 Upload Rollback Apply Output Artifact"
       if: steps.truncate_rollback.outputs.artifact_needed == 'true'
       id: upload_rollback_artifact
       uses: actions/upload-artifact@v4
@@ -202,7 +202,7 @@ runs:
         name: rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}
         path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
 
-    - name: Get Rollback Artifact URL
+    - name: "🔗 Get Rollback Artifact URL"
       if: steps.truncate_rollback.outputs.artifact_needed == 'true'
       id: get_rollback_artifact_url
       uses: actions/github-script@v7
@@ -225,7 +225,7 @@ runs:
 
     # No need to read results for Terratrash, it will use input_file_path directly
 
-    - name: Render Deployment Message with Terratrash (Rollback)
+    - name: "📝 Render Deployment Message with Terratrash (Rollback)"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
@@ -235,7 +235,7 @@ runs:
       env:
         artifact_url: ${{ steps.get_rollback_artifact_url.outputs.artifact_url }}
 
-    - name: Terraform Plan
+    - name: "📋 Terraform Plan"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       id: plan
       shell: bash
@@ -254,7 +254,7 @@ runs:
         fi
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Terratrash Filter Plan Output
+    - name: "🧹 Terratrash Filter Plan Output"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       id: terratrash_plan
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
@@ -262,7 +262,7 @@ runs:
         input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
         output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
 
-    - name: Truncate Filtered Plan Output for PR Comment
+    - name: "✂️ Truncate Filtered Plan Output for PR Comment"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       id: truncate_plan
       shell: bash
@@ -281,7 +281,7 @@ runs:
         echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Upload Plan Output Artifact
+    - name: "📤 Upload Plan Output Artifact"
       if: steps.truncate_plan.outputs.artifact_needed == 'true'
       id: upload_plan_artifact
       uses: actions/upload-artifact@v4
@@ -289,7 +289,7 @@ runs:
         name: terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}
         path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
 
-    - name: Get Plan Artifact URL
+    - name: "🔗 Get Plan Artifact URL"
       if: steps.truncate_plan.outputs.artifact_needed == 'true'
       id: get_plan_artifact_url
       uses: actions/github-script@v7
@@ -312,7 +312,7 @@ runs:
 
     # No need to read results for Terratrash, it will use input_file_path directly
 
-    - name: Render Deployment Message with Terratrash (Plan)
+    - name: "📝 Render Deployment Message with Terratrash (Plan)"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
@@ -322,21 +322,21 @@ runs:
       env:
         artifact_url: ${{ steps.get_plan_artifact_url.outputs.artifact_url }}
 
-    - name: Upload Plan Binary Artifact
+    - name: "📦 Upload Plan Binary Artifact"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       uses: actions/upload-artifact@v4
       with:
         name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
         path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
 
-    - name: Tag Commit with Plan Run ID
+    - name: "🏷️ Tag Commit with Plan Run ID"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       env:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
-        TAG_NAME="terrachops/plan/${{ steps.branch-deploy.outputs.environment }}/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
-        TAG_MESSAGE="Terrachops plan artifact from run ${{ github.run_id }}. Triggered by @${{ github.actor }} on $(date -u)."
+        TAG_NAME="terraform-branch-deploy/plan/${{ steps.branch-deploy.outputs.environment }}/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
+        TAG_MESSAGE="terraform-branch-deploy plan artifact from run ${{ github.run_id }}. Triggered by @${{ github.actor }} on $(date -u)."
 
         if git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; then
           echo "Overwriting existing plan tag for this commit."
@@ -352,7 +352,7 @@ runs:
         fi
       shell: bash
 
-    - name: Find Plan Run ID from Git Tag
+    - name: "🔍 Find Plan Run ID from Git Tag"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: find_run_id
       run: |
@@ -360,9 +360,9 @@ runs:
         git fetch --tags
         COMMIT_SHA="${{ steps.branch-deploy.outputs.sha }}"
         TARGET_ENV="${{ steps.branch-deploy.outputs.environment }}"
-        TAG=$(git for-each-ref "refs/tags/terrachops/plan/${TARGET_ENV}/*/${COMMIT_SHA}" --sort=-creatordate --format='%(refname:short)' | head -n 1)
+        TAG=$(git for-each-ref "refs/tags/terraform-branch-deploy/plan/${TARGET_ENV}/*/${COMMIT_SHA}" --sort=-creatordate --format='%(refname:short)' | head -n 1)
         if [ -z "$TAG" ]; then
-          echo "::error::No Terrachops plan tag found for commit $COMMIT_SHA in environment '$TARGET_ENV'. Please run '.tf plan to $TARGET_ENV' first."
+          echo "::error::No terraform-branch-deploy plan tag found for commit $COMMIT_SHA in environment '$TARGET_ENV'. Please run '.tf plan to $TARGET_ENV' first."
           exit 1
         fi
 
@@ -373,7 +373,7 @@ runs:
         echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
       shell: bash
 
-    - name: Download Plan Artifact
+    - name: "⬇️ Download Plan Artifact"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       uses: actions/download-artifact@v4
       with:
@@ -382,7 +382,7 @@ runs:
         name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
         path: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Terraform Apply
+    - name: "🚀 Terraform Apply"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: apply
       shell: bash
@@ -401,7 +401,7 @@ runs:
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     # APPLY: Filter, then Truncate, then Render
-    - name: Terratrash Filter Apply Output
+    - name: "🧹 Terratrash Filter Apply Output"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: terratrash_apply
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
@@ -409,7 +409,7 @@ runs:
         input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
         output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
 
-    - name: Truncate Filtered Apply Output for PR Comment
+    - name: "✂️ Truncate Filtered Apply Output for PR Comment"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: truncate_apply
       shell: bash
@@ -428,7 +428,7 @@ runs:
         echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: Upload Apply Output Artifact
+    - name: "📤 Upload Apply Output Artifact"
       if: steps.truncate_apply.outputs.artifact_needed == 'true'
       id: upload_apply_artifact
       uses: actions/upload-artifact@v4
@@ -436,7 +436,7 @@ runs:
         name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
         path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
 
-    - name: Get Apply Artifact URL
+    - name: "🔗 Get Apply Artifact URL"
       if: steps.truncate_apply.outputs.artifact_needed == 'true'
       id: get_apply_artifact_url
       uses: actions/github-script@v7
@@ -459,7 +459,7 @@ runs:
 
     # No need to read results for Terratrash, it will use input_file_path directly
 
-    - name: Render Deployment Message with Terratrash (Apply)
+    - name: "📝 Render Deployment Message with Terratrash (Apply)"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:

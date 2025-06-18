@@ -1,0 +1,38 @@
+# This file defines environment-specific configurations for terraform-branch-deploy.
+# It allows for granular control over Terraform command arguments per environment.
+
+defaults:
+  var-files:
+    paths:
+      - common.tfvars
+  plan-args:
+    args:
+      - "-compact-warnings"
+
+environments:
+  dev:
+    working-directory: ./terraform/dev
+    backend-configs:
+      paths:
+        - ./terraform/dev/dev.s3.tfbackend
+    var-files:
+      paths:
+        - ./terraform/dev/dev.tfvars
+
+  prod:
+    working-directory: ./terraform/prod
+    backend-configs:
+      paths:
+        - ./terraform/prod/prod.s3.tfbackend
+    var-files:
+      inherit: false
+      paths:
+        - ./terraform/prod/prod.tfvars
+        - ./terraform/prod/secrets.prod.tfvars
+    plan-args:
+      inherit: false
+      args:
+        - "-parallelism=25"
+    apply-args:
+      args:
+        - "-parallelism=10"
