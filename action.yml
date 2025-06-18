@@ -99,7 +99,7 @@ runs:
       if: steps.branch-deploy.outputs.continue == 'true'
       run: |
         set -euo pipefail
-        chmod +x ./scripts/prepare_tf_branch_deploy.py
+        chmod +x ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py
       shell: bash
 
     - name: "📝 Prepare terraform-branch-deploy Commands"
@@ -109,16 +109,16 @@ runs:
         LOG_LEVEL: ${{ inputs.log-level }}
       run: |
         set -euo pipefail
-        pip install -r ./scripts/requirements.txt
+        pip install -r ${GITHUB_ACTION_PATH}/scripts/requirements.txt
 
-        python ./scripts/prepare_tf_branch_deploy.py \
+        python ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py \
           "${{ inputs.working-directory }}" \
           "${{ steps.branch-deploy.outputs.environment }}" \
           "${{ steps.branch-deploy.outputs.params }}"
       shell: bash
 
     - name: "📄 Copy deployment message template"
-      run: cp ./deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+      run: cp ${GITHUB_ACTION_PATH}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       shell: bash
 
     - name: "⚙️ Setup Terraform"
