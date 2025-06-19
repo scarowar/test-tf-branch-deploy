@@ -115,13 +115,39 @@ runs:
         chmod +x ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py
       shell: bash
 
-    - name: Debug workspace contents
+    - name: Debug workspace contents (Enhanced)
       run: |
+        echo "--- Debugging Workspace Contents ---"
         echo "Attempting to change to GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
         cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         echo "Current directory after cd: $(pwd)"
-        echo "Listing contents of GITHUB_WORKSPACE:"
+
+        echo "Listing contents of current directory (ls -lR .):"
         ls -lR .
+
+        echo "Listing contents of / (ls -lR /):"
+        ls -lR /
+
+        echo "Showing disk usage (df -h):"
+        df -h
+
+        echo "Showing mounted filesystems (mount):"
+        mount
+
+        # Try to find the expected file explicitly
+        echo "Searching for 'int_backend.conf' from /:"
+        find / -name "int_backend.conf" 2>/dev/null || echo "File not found by find command."
+
+        # Check if the .terraform-branch-deploy.yml is readable from current dir
+        echo "Checking if .terraform-branch-deploy.yml is readable:"
+        if [ -f ".terraform-branch-deploy.yml" ]; then
+          echo ".terraform-branch-deploy.yml found in current directory."
+          cat .terraform-branch-deploy.yml
+        else
+          echo ".terraform-branch-deploy.yml NOT found in current directory."
+        fi
+
+        echo "--- End Debug ---"
       working-directory: ${{ github.workspace }}
       shell: bash
 
@@ -325,7 +351,7 @@ runs:
         else
           cp "$FILTERED_PLAN" "$FILTERED_PLAN_TRUNC"
         fi
-        echo "artifact_needed=$ARTIFACT_OUTPUT" >> $GITHUB_OUTPUT
+        echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "📤 Upload Plan Output Artifact"
@@ -441,7 +467,7 @@ runs:
         terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve tfplan-${{ steps.branch-deploy.outputs.sha }}.binary | tee apply_output.txt
         # Truncate apply_output.txt if too large for PR comment
         MAX_COMMENT_SIZE=64000
-        APPLY_COMMENT=apply_comment.txt
+        APPLY_COMMENT=apply_output.txt # Changed from apply_comment.txt for consistency with others
         if [ $(wc -c < apply_output.txt) -gt $MAX_COMMENT_SIZE ]; then
           head -c $MAX_COMMENT_SIZE apply_output.txt > $APPLY_COMMENT
           echo "\n---\n:warning: Output truncated. See full apply log in artifact." >> $APPLY_COMMENT
