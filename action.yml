@@ -53,7 +53,7 @@ runs:
           sudo apt-get install -y python3-venv
         fi
       shell: bash
-    - name: " Install yq"
+    - name: "Install yq"
       run: |
         set -euo pipefail
         YQ_VERSION="v4.44.1"
@@ -77,6 +77,8 @@ runs:
       id: preflight
       run: |
         set -euo pipefail
+        # Explicitly change to workspace to ensure .terraform-branch-deploy.yml is found
+        cd "$GITHUB_WORKSPACE" || exit 1
         if [ -f ".terraform-branch-deploy.yml" ]; then
           ENVS=$(yq e '.environments | keys | .[]' .terraform-branch-deploy.yml | tr '\n' ',' | sed 's/,$//')
           echo "Discovered environments: $ENVS"
@@ -109,15 +111,17 @@ runs:
       if: steps.branch-deploy.outputs.continue == 'true'
       run: |
         set -euo pipefail
+        # Ensure the script is executable from the action's path
         chmod +x ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py
       shell: bash
 
     - name: Debug workspace contents
       run: |
-        echo "Current directory: $(pwd)"
+        echo "Attempting to change to GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
+        echo "Current directory after cd: $(pwd)"
+        echo "Listing contents of GITHUB_WORKSPACE:"
         ls -lR .
-        echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-        ls -lR $GITHUB_WORKSPACE
       working-directory: ${{ github.workspace }}
       shell: bash
 
@@ -128,6 +132,8 @@ runs:
         LOG_LEVEL: ${{ inputs.log-level }}
       run: |
         set -euo pipefail
+        # Explicitly change into the workspace before running Python script
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         VENV_DIR=".venv-branch-deploy"
         # Ensure python3-venv is installed (for ensurepip)
         if ! python3 -m venv --help > /dev/null 2>&1; then
@@ -138,6 +144,8 @@ runs:
         python3 -m venv "$VENV_DIR"
         source "$VENV_DIR/bin/activate"
         pip install --upgrade pip
+        # Note: GITHUB_ACTION_PATH points to the location where your composite action itself is located.
+        # This is correct for accessing its internal scripts and requirements.txt
         pip install -r ${GITHUB_ACTION_PATH}/scripts/requirements.txt
 
         python ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py \
@@ -145,10 +153,13 @@ runs:
           "${{ steps.branch-deploy.outputs.environment }}" \
           "${{ steps.branch-deploy.outputs.params }}"
       shell: bash
-      working-directory: ${{ github.workspace }}
+      working-directory: ${{ github.workspace }} # Keep this for the step's general context
 
     - name: "📄 Copy deployment message template"
-      run: cp ${GITHUB_ACTION_PATH}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
+        cp ${GITHUB_ACTION_PATH}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       shell: bash
 
     - name: "⚙️ Setup Terraform"
@@ -162,6 +173,7 @@ runs:
       id: init
       run: |
         set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform init ${{ steps.prepare_cmds.outputs.init_args }}
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
@@ -171,6 +183,7 @@ runs:
       id: fmt
       run: |
         set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform fmt -check
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
@@ -180,6 +193,7 @@ runs:
       id: validate
       run: |
         set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform validate
       shell: bash
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
@@ -189,6 +203,7 @@ runs:
       id: rollback
       run: |
         set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         echo "🚨 Performing immediate plan and apply for stable branch rollback."
         terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=rollback.plan > rollback_plan.txt
         terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan -no-color | tee rollback_apply.txt
@@ -207,6 +222,8 @@ runs:
       id: truncate_rollback
       shell: bash
       run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         MAX_COMMENT_SIZE=64000
         FILTERED_APPLY=rollback_apply.filtered.txt
         FILTERED_APPLY_TRUNC=rollback_apply.filtered.trunc.txt
@@ -268,6 +285,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary | tee tfplan.txt
         mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
         # Truncate tfplan.txt if too large for PR comment (GitHub max 65536 chars)
@@ -294,6 +312,8 @@ runs:
       id: truncate_plan
       shell: bash
       run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         MAX_COMMENT_SIZE=64000
         FILTERED_PLAN=tfplan.filtered.txt
         FILTERED_PLAN_TRUNC=tfplan.filtered.trunc.txt
@@ -305,7 +325,7 @@ runs:
         else
           cp "$FILTERED_PLAN" "$FILTERED_PLAN_TRUNC"
         fi
-        echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
+        echo "artifact_needed=$ARTIFACT_OUTPUT" >> $GITHUB_OUTPUT
       working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "📤 Upload Plan Output Artifact"
@@ -362,6 +382,7 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         TAG_NAME="terraform-branch-deploy/plan/${{ steps.branch-deploy.outputs.environment }}/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
         TAG_MESSAGE="terraform-branch-deploy plan artifact from run ${{ github.run_id }}. Triggered by @${{ github.actor }} on $(date -u)."
 
@@ -384,6 +405,7 @@ runs:
       id: find_run_id
       run: |
         set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         git fetch --tags
         COMMIT_SHA="${{ steps.branch-deploy.outputs.sha }}"
         TARGET_ENV="${{ steps.branch-deploy.outputs.environment }}"
@@ -415,6 +437,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve tfplan-${{ steps.branch-deploy.outputs.sha }}.binary | tee apply_output.txt
         # Truncate apply_output.txt if too large for PR comment
         MAX_COMMENT_SIZE=64000
@@ -441,6 +464,8 @@ runs:
       id: truncate_apply
       shell: bash
       run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         MAX_COMMENT_SIZE=64000
         FILTERED_APPLY=apply_output.filtered.txt
         FILTERED_APPLY_TRUNC=apply_output.filtered.trunc.txt
