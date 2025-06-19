@@ -120,42 +120,6 @@ runs:
         chmod +x ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py
       shell: bash
 
-    - name: Debug workspace contents (Enhanced)
-      run: |
-        echo "--- Debugging Workspace Contents ---"
-        echo "Attempting to change to GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
-        echo "Current directory after cd: $(pwd)"
-
-        echo "Listing contents of current directory (ls -lR .):"
-        ls -lR .
-
-        echo "Listing contents of / (ls -lR /):"
-        ls -lR /
-
-        echo "Showing disk usage (df -h):"
-        df -h
-
-        echo "Showing mounted filesystems (mount):"
-        mount
-
-        # Try to find the expected file explicitly
-        echo "Searching for 'int_backend.conf' from /:"
-        find / -name "int_backend.conf" 2>/dev/null || echo "File not found by find command."
-
-        # Check if the .terraform-branch-deploy.yml is readable from current dir
-        echo "Checking if .terraform-branch-deploy.yml is readable:"
-        if [ -f ".terraform-branch-deploy.yml" ]; then
-          echo ".terraform-branch-deploy.yml found in current directory."
-          cat .terraform-branch-deploy.yml
-        else
-          echo ".terraform-branch-deploy.yml NOT found in current directory."
-        fi
-
-        echo "--- End Debug ---"
-      working-directory: ${{ github.workspace }}
-      shell: bash
-
     - name: "📝 Prepare terraform-branch-deploy Commands"
       if: steps.branch-deploy.outputs.continue == 'true'
       id: prepare_cmds
