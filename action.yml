@@ -112,6 +112,15 @@ runs:
         chmod +x ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py
       shell: bash
 
+    - name: Debug workspace contents
+      run: |
+        echo "Current directory: $(pwd)"
+        ls -lR .
+        echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+        ls -lR $GITHUB_WORKSPACE
+      working-directory: ${{ github.workspace }}
+      shell: bash
+
     - name: "📝 Prepare terraform-branch-deploy Commands"
       if: steps.branch-deploy.outputs.continue == 'true'
       id: prepare_cmds
