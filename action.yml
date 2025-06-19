@@ -136,6 +136,7 @@ runs:
           "${{ steps.branch-deploy.outputs.environment }}" \
           "${{ steps.branch-deploy.outputs.params }}"
       shell: bash
+      working-directory: ${{ github.workspace }}
 
     - name: "📄 Copy deployment message template"
       run: cp ${GITHUB_ACTION_PATH}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
