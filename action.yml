@@ -243,7 +243,7 @@ runs:
     - name: "📤 Upload Rollback Apply Output Artifact"
       if: steps.truncate_rollback.outputs.artifact_needed == 'true'
       id: upload_rollback_artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}
         path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
@@ -331,7 +331,7 @@ runs:
     - name: "📤 Upload Plan Output Artifact"
       if: steps.truncate_plan.outputs.artifact_needed == 'true'
       id: upload_plan_artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}
         path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
@@ -370,7 +370,7 @@ runs:
 
     - name: "📦 Upload Plan Binary Artifact"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
         path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
@@ -476,7 +476,7 @@ runs:
     - name: "📤 Upload Apply Output Artifact"
       if: steps.truncate_apply.outputs.artifact_needed == 'true'
       id: upload_apply_artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
         path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
