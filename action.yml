@@ -78,6 +78,24 @@ runs:
         yq --version
       shell: bash
 
+    - name: "Install Ruby on Ubuntu 25.04 (self-hosted workaround)"
+      if: startsWith(runner.os, 'Linux') && runner.arch == 'X64' && contains(runner.name, '25.04')
+      run: |
+        set -euo pipefail
+        if ! command -v ruby-build >/dev/null 2>&1; then
+          echo "Installing ruby-build..."
+          git clone https://github.com/rbenv/ruby-build.git /tmp/ruby-build
+          /tmp/ruby-build/install.sh
+        fi
+        RUBY_VERSION=3.3.5
+        RUBY_PATH="$RUNNER_TOOL_CACHE/Ruby/$RUBY_VERSION/x64"
+        if [ ! -f "$RUBY_PATH.complete" ]; then
+          mkdir -p "$RUBY_PATH"
+          ruby-build $RUBY_VERSION "$RUBY_PATH"
+          touch "$RUBY_PATH.complete"
+        fi
+      shell: bash
+
     - name: "🚦 Pre-flight Checks"
       id: preflight
       run: |
@@ -177,24 +195,6 @@ runs:
       if: steps.branch-deploy.outputs.continue == 'true'
       id: validate
       run: |
-        set -euo pipefail
-        terraform validate
-      shell: bash
-      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    - name: "🚨 Rollback Plan and Apply"
-      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-      id: rollback
-      run: |
-        set -euo pipefail
-        echo "🚨 Performing immediate plan and apply for stable branch rollback."
-        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=rollback.plan > rollback_plan.txt
-        terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan -no-color | tee rollback_apply.txt
-      shell: bash
-      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    - name: "🧹 Terratrash Filter Rollback Apply Output"
-      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
         input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
