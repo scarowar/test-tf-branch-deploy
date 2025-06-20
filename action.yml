@@ -217,8 +217,8 @@ runs:
       with:
         input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
         output_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
-        env:
-          RUBYOPT: "-EUTF-8"
+      env:
+        RUBYOPT: "-EUTF-8"
 
     - name: "✂️ Truncate Filtered Rollback Apply Output for PR Comment"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
