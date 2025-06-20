@@ -153,6 +153,13 @@ def main() -> None:
     if not isinstance(working_dir, str) or not working_dir.strip():
         error_exit("Invalid or empty working directory in configuration.")
 
+    # Sanitize working_dir: Remove leading "./" if present
+    if working_dir.startswith("./"):
+        working_dir = working_dir[2:]
+    # Also handle if it's just "."
+    if working_dir == ".":
+        working_dir = "" # Set to empty string if it's just ".", effectively making it the root of 'repo_checkout'
+
     # --- Build Arguments ---
     init_args: List[str] = process_paths(config, env_name, "backend-configs", "-backend-config=", working_dir)
     init_args.extend(process_args(config, env_name, "init-args", ""))
@@ -190,10 +197,10 @@ def main() -> None:
         error_exit(f"Failed to write to GITHUB_OUTPUT: {e}")
 
     log_section("📝 terraform-branch-deploy configuration summary:")
-    log_info(f"  📁 Working Directory: {working_dir}")
-    log_info(f"  🏗️  Init Args: {final_init_args}")
-    log_info(f"  📋 Plan Args: {final_plan_args}")
-    log_info(f"  🚀 Apply Args: {final_apply_args}")
+    log_info(f"    📁 Working Directory: {working_dir}")
+    log_info(f"    🏗️  Init Args: {final_init_args}")
+    log_info(f"    📋 Plan Args: {final_plan_args}")
+    log_info(f"    🚀 Apply Args: {final_apply_args}")
     log_info("✅ Configuration prepared for Terraform execution.")
 
 if __name__ == "__main__":
