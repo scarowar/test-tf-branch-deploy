@@ -397,6 +397,7 @@ runs:
           exit 1
         fi
       shell: bash
+      working-directory: repo_checkout
 
     - name: "🔍 Find Plan Run ID from Git Tag"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
