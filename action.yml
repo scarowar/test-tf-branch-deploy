@@ -295,13 +295,13 @@ runs:
         fi
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: "🧹 Terratrash Filter Plan Output"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      id: terratrash_plan
-      uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
-      with:
-        input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
-        output_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
+    # - name: "🧹 Terratrash Filter Plan Output"
+    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+    #   id: terratrash_plan
+    #   uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
+    #   with:
+    #     input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
+    #     output_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
 
     - name: "✂️ Truncate Filtered Plan Output for PR Comment"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -310,7 +310,7 @@ runs:
       run: |
         set -euo pipefail
         MAX_COMMENT_SIZE=64000
-        FILTERED_PLAN=tfplan.filtered.txt
+        FILTERED_PLAN=tfplan.txt
         FILTERED_PLAN_TRUNC=tfplan.filtered.trunc.txt
         ARTIFACT_NEEDED=false
         if [ -f "$FILTERED_PLAN" ] && [ $(wc -c < "$FILTERED_PLAN") -gt $MAX_COMMENT_SIZE ]; then
@@ -329,7 +329,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}
-        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
+        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
 
     - name: "🔗 Get Plan Artifact URL"
       if: steps.truncate_plan.outputs.artifact_needed == 'true'
