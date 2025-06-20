@@ -175,8 +175,8 @@ def main() -> None:
     for param in dynamic_params_str.split():
         for allowed in allowed_dynamic_flags:
             if param.startswith(allowed):
-                # Only allow alphanumeric, dashes, underscores, and equals in dynamic flags
-                if not all(c.isalnum() or c in "-_=" for c in param):
+                # Only allow alphanumeric, dashes, underscores, equals, AND DOTS in dynamic flags
+                if not all(c.isalnum() or c in "-_=. " for c in param): # Added '.' to allowed characters
                     error_exit(f"Dynamic flag '{param}' contains invalid characters.")
                 dynamic_flags.append(param)
 
