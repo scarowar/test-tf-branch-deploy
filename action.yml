@@ -195,6 +195,24 @@ runs:
       if: steps.branch-deploy.outputs.continue == 'true'
       id: validate
       run: |
+        set -euo pipefail
+        terraform validate
+      shell: bash
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+
+    - name: "🚨 Rollback Plan and Apply"
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      id: rollback
+      run: |
+        set -euo pipefail
+        echo "🚨 Performing immediate plan and apply for stable branch rollback."
+        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=rollback.plan > rollback_plan.txt
+        terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan -no-color | tee rollback_apply.txt
+      shell: bash
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+
+    - name: "🧹 Terratrash Filter Rollback Apply Output"
+      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
         input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
