@@ -452,6 +452,8 @@ runs:
       with:
         input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
         output_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
+      env:
+        RUBYOPT: "-EUTF-8"
 
     - name: "✂️ Truncate Filtered Apply Output for PR Comment"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
@@ -511,3 +513,4 @@ runs:
         erb_render_save_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_apply_artifact_url.outputs.artifact_url }}
+        RUBYOPT: "-EUTF-8"
