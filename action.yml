@@ -104,9 +104,7 @@ runs:
         deploy_message_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
         ignored_checks: "SonarQube,BlackDuck"
 
-    - name: "📥 Checkout Code (Conditional)"
-      # Only checkout if the branch-deploy action needs a different SHA than the one
-      # initially checked out by this composite action's first checkout.
+    - name: "📥 Checkout Code"
       uses: actions/checkout@v4
       with:
         ref: ${{ steps.branch-deploy.outputs.sha }}
@@ -143,7 +141,7 @@ runs:
           "${{ steps.branch-deploy.outputs.environment }}" \
           "${{ steps.branch-deploy.outputs.params }}"
       shell: bash
-      working-directory: ${{ github.workspace }}/repo_path
+      working-directory: repo_checkout/${{ inputs.working-directory }}
 
     - name: "📄 Copy deployment message template"
       run: |
