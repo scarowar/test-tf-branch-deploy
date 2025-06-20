@@ -78,16 +78,11 @@ runs:
         yq --version
       shell: bash
 
-    # Removed: The conflicting "📦 Checkout Config File"
-    # This was clearing the workspace from the main workflow's checkout.
-    # The .terraform-branch-deploy.yml is now available from the "Initial Full Checkout" step.
-
     - name: "🚦 Pre-flight Checks"
       id: preflight
       run: |
         set -euo pipefail
         # Ensure we are in the workspace, which should be populated by "Initial Full Checkout".
-        cd "$GITHUB_WORKSPACE" || exit 1
         if [ -f ".terraform-branch-deploy.yml" ]; then
           ENVS=$(yq e '.environments | keys | .[]' .terraform-branch-deploy.yml | tr '\n' ',' | sed 's/,$//')
           echo "Discovered environments: $ENVS"
@@ -106,17 +101,17 @@ runs:
         trigger: ${{ inputs.trigger }}
         environment_targets: "${{ steps.preflight.outputs.available_envs || 'production' }}"
         stable_branch: ${{ inputs.stable_branch }}
-        deploy_message_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        deploy_message_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
         ignored_checks: "SonarQube,BlackDuck"
 
     - name: "📥 Checkout Code (Conditional)"
       # Only checkout if the branch-deploy action needs a different SHA than the one
       # initially checked out by this composite action's first checkout.
-      if: steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.sha != github.sha
       uses: actions/checkout@v4
       with:
         ref: ${{ steps.branch-deploy.outputs.sha }}
         fetch-depth: 0
+        path: repo_checkout
 
     - name: "🔑 Ensure prepare_tf_branch_deploy.py is executable"
       if: steps.branch-deploy.outputs.continue == 'true'
@@ -132,7 +127,6 @@ runs:
         LOG_LEVEL: ${{ inputs.log-level }}
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         VENV_DIR=".venv-branch-deploy"
         if ! python3 -m venv --help > /dev/null 2>&1; then
           echo "Installing python3-venv..."
@@ -149,13 +143,12 @@ runs:
           "${{ steps.branch-deploy.outputs.environment }}" \
           "${{ steps.branch-deploy.outputs.params }}"
       shell: bash
-      working-directory: ${{ github.workspace }}
+      working-directory: ${{ github.workspace }}/repo_path
 
     - name: "📄 Copy deployment message template"
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
-        cp ${GITHUB_ACTION_PATH}/deployment_message.template.md ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        cp ${GITHUB_ACTION_PATH}/deployment_message.template.md repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       shell: bash
 
     - name: "⚙️ Setup Terraform"
@@ -169,49 +162,45 @@ runs:
       id: init
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform init ${{ steps.prepare_cmds.outputs.init_args }}
       shell: bash
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "🧹 Terraform Format Check"
       if: steps.branch-deploy.outputs.continue == 'true'
       id: fmt
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform fmt -check
       shell: bash
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "✅ Terraform Validate"
       if: steps.branch-deploy.outputs.continue == 'true'
       id: validate
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform validate
       shell: bash
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "🚨 Rollback Plan and Apply"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       id: rollback
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         echo "🚨 Performing immediate plan and apply for stable branch rollback."
         terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=rollback.plan > rollback_plan.txt
         terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} rollback.plan -no-color | tee rollback_apply.txt
       shell: bash
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "🧹 Terratrash Filter Rollback Apply Output"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
-        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
-        output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
+        input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
+        output_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
 
     - name: "✂️ Truncate Filtered Rollback Apply Output for PR Comment"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
@@ -219,7 +208,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         MAX_COMMENT_SIZE=64000
         FILTERED_APPLY=rollback_apply.filtered.txt
         FILTERED_APPLY_TRUNC=rollback_apply.filtered.trunc.txt
@@ -232,7 +220,7 @@ runs:
           cp "$FILTERED_APPLY" "$FILTERED_APPLY_TRUNC"
         fi
         echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "📤 Upload Rollback Apply Output Artifact"
       if: steps.truncate_rollback.outputs.artifact_needed == 'true'
@@ -240,7 +228,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
+        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.txt
 
     - name: "🔗 Get Rollback Artifact URL"
       if: steps.truncate_rollback.outputs.artifact_needed == 'true'
@@ -267,9 +255,9 @@ runs:
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
-        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt
-        erb_render_template: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
-        erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.filtered.trunc.txt
+        erb_render_template: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        erb_render_save_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_rollback_artifact_url.outputs.artifact_url }}
 
@@ -279,7 +267,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out=tfplan.binary | tee tfplan.txt
         mv tfplan.binary tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
         MAX_COMMENT_SIZE=64000
@@ -290,15 +277,15 @@ runs:
         else
           cp tfplan.txt $PLAN_COMMENT
         fi
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "🧹 Terratrash Filter Plan Output"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       id: terratrash_plan
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
-        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
-        output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
+        input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
+        output_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
 
     - name: "✂️ Truncate Filtered Plan Output for PR Comment"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -306,7 +293,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         MAX_COMMENT_SIZE=64000
         FILTERED_PLAN=tfplan.filtered.txt
         FILTERED_PLAN_TRUNC=tfplan.filtered.trunc.txt
@@ -319,7 +305,7 @@ runs:
           cp "$FILTERED_PLAN" "$FILTERED_PLAN_TRUNC"
         fi
         echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "📤 Upload Plan Output Artifact"
       if: steps.truncate_plan.outputs.artifact_needed == 'true'
@@ -327,7 +313,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
+        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.txt
 
     - name: "🔗 Get Plan Artifact URL"
       if: steps.truncate_plan.outputs.artifact_needed == 'true'
@@ -354,9 +340,9 @@ runs:
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
-        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt
-        erb_render_template: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
-        erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.filtered.trunc.txt
+        erb_render_template: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        erb_render_save_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_plan_artifact_url.outputs.artifact_url }}
 
@@ -365,7 +351,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}/tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
+        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan-${{ steps.branch-deploy.outputs.sha }}.binary
 
     - name: "🏷️ Tag Commit with Plan Run ID"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
@@ -373,7 +359,6 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         TAG_NAME="terraform-branch-deploy/plan/${{ steps.branch-deploy.outputs.environment }}/${{ github.run_id }}/${{ steps.branch-deploy.outputs.sha }}"
         TAG_MESSAGE="terraform-branch-deploy plan artifact from run ${{ github.run_id }}. Triggered by @${{ github.actor }} on $(date -u)."
 
@@ -396,7 +381,6 @@ runs:
       id: find_run_id
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         git fetch --tags
         COMMIT_SHA="${{ steps.branch-deploy.outputs.sha }}"
         TARGET_ENV="${{ steps.branch-deploy.outputs.environment }}"
@@ -420,7 +404,7 @@ runs:
         github-token: ${{ inputs.github-token }}
         run-id: ${{ steps.find_run_id.outputs.run_id }}
         name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}
+        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "🚀 Terraform Apply"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
@@ -428,7 +412,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve tfplan-${{ steps.branch-deploy.outputs.sha }}.binary | tee apply_output.txt
         MAX_COMMENT_SIZE=64000
         APPLY_COMMENT=apply_output.txt
@@ -438,15 +421,15 @@ runs:
         else
           cp apply_output.txt $APPLY_COMMENT
         fi
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "🧹 Terratrash Filter Apply Output"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: terratrash_apply
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
-        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
-        output_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
+        input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
+        output_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
 
     - name: "✂️ Truncate Filtered Apply Output for PR Comment"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
@@ -454,7 +437,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        cd "$GITHUB_WORKSPACE" || { echo "Failed to change directory to GITHUB_WORKSPACE"; exit 1; }
         MAX_COMMENT_SIZE=64000
         FILTERED_APPLY=apply_output.filtered.txt
         FILTERED_APPLY_TRUNC=apply_output.filtered.trunc.txt
@@ -467,7 +449,7 @@ runs:
           cp "$FILTERED_APPLY" "$FILTERED_APPLY_TRUNC"
         fi
         echo "artifact_needed=$ARTIFACT_NEEDED" >> $GITHUB_OUTPUT
-      working-directory: ${{ steps.prepare_cmds.outputs.working_dir }}
+      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "📤 Upload Apply Output Artifact"
       if: steps.truncate_apply.outputs.artifact_needed == 'true'
@@ -475,7 +457,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
-        path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
+        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.txt
 
     - name: "🔗 Get Apply Artifact URL"
       if: steps.truncate_apply.outputs.artifact_needed == 'true'
@@ -502,8 +484,8 @@ runs:
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       uses: GrantBirki/terratrash-action@f4b67b8ee0925ff4ed28bd20c44bebbd16e8f892
       with:
-        input_file_path: ${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt
-        erb_render_template: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
-        erb_render_save_path: ${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        input_file_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.filtered.trunc.txt
+        erb_render_template: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
+        erb_render_save_path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/deployment_message.md
       env:
         artifact_url: ${{ steps.get_apply_artifact_url.outputs.artifact_url }}
