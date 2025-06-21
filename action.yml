@@ -422,13 +422,13 @@ runs:
       working-directory: repo_checkout
 
     - name: "⬇️ Download Plan Artifact"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-      uses: actions/download-artifact@v4
+      if: ${{ steps.branch-deploy.outputs.ref!= inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      uses: dawidd6/action-download-artifact@v9 # Replaced actions/download-artifact@v4
       with:
-        github-token: ${{ inputs.github-token }}
-        run-id: ${{ steps.find_run_id.outputs.run_id }}
-        name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
-        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+        github_token: ${{ inputs.github-token }} # Mapped from github-token
+        run_id: ${{ steps.find_run_id.outputs.run_id }} # Mapped from run-id
+        name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }} # Direct mapping
+        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }} # Direct mapping
 
     - name: "🚀 Terraform Apply"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
