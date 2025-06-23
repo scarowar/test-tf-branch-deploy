@@ -10,7 +10,7 @@ branding:
 inputs:
   # --- Authentication & Permissions ---
   github-token:
-    description: "The GitHub token for authentication (e.g., ${{ secrets.GITHUB_TOKEN }}). Requires 'contents: write', 'pull-requests: write', 'actions: read', and 'deployments: write' permissions."
+    description: "The GitHub token for authentication. Requires 'contents: write', 'pull-requests: write', 'actions: read', and 'deployments: write' permissions."
     required: true
 
   # --- Terraform Tooling Configuration ---
@@ -537,6 +537,7 @@ runs:
         compression-level: 0
 
     - name: "🏷️ Tag Commit with Plan Run ID"
+      shell: bash
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       env:
         GH_TOKEN: ${{ inputs.github-token }}
