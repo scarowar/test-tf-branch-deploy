@@ -3,41 +3,60 @@
 import sys
 import os
 import yaml
+import shlex
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Callable
 
 # --- Logging Helpers ---
-def log_info(msg: str) -> None:
-    print(msg)
+def _get_log_function(level: str, prefix: str, github_command: str = "") -> Callable[[str], None]:
+    """
+    Factory function to create logging functions that always print,
+    but use GitHub Actions annotations for DEBUG, WARNING, and ERROR.
+    """
+    if level == "DEBUG":
+        return lambda msg: print(f"::debug::{msg}")
+    elif level == "WARNING":
+        return lambda msg: print(f"::warning::{msg}")
+    elif level == "ERROR":
+        return lambda msg: print(f"::error::{msg}")
+    else:
+        return lambda msg: print(f"{prefix} {msg}")
+
+log_debug = _get_log_function("DEBUG", "🐛 DEBUG:", "debug")
+log_info = _get_log_function("INFO", "💡 INFO:")
+log_warning = _get_log_function("WARNING", "⚠️ WARNING:", "warning")
 
 def log_section(title: str) -> None:
+    """Prints a formatted section header to the logs."""
     print(f"\n{title}\n{'-' * len(title)}")
 
 def error_exit(message: str) -> None:
     """
-    Print a GitHub Actions-formatted error message and exit.
+    Prints a GitHub Actions-formatted error message and exits the script.
     Args:
         message (str): The error message to log and print.
     """
-    print(f"::error::{message}")
-    print(f"❌ {message}")
+    _get_log_function("ERROR", "❌ ERROR:")(message)
     sys.exit(1)
 
 def process_args(
     config: Dict[str, Any], env_name: str, key_name: str, arg_prefix: str
 ) -> List[str]:
     """
-    Process a list of arguments, handling inheritance and validating types.
+    Processes a list of arguments (e.g., plan-args, apply-args), handling inheritance
+    from defaults and validating input types.
     Args:
         config (Dict[str, Any]): The loaded YAML configuration.
-        env_name (str): The environment name.
-        key_name (str): The key to process (e.g., 'plan-args').
-        arg_prefix (str): Prefix to prepend to each argument.
+        env_name (str): The environment name (e.g., 'dev', 'prod').
+        key_name (str): The key to process (e.g., 'plan-args', 'apply-args', 'init-args').
+        arg_prefix (str): Prefix to prepend to each argument (e.g., '', '-backend-config=').
     Returns:
         List[str]: The processed argument list.
     """
     final_args: List[str] = []
+    
     inherit: bool = config.get("environments", {}).get(env_name, {}).get(key_name, {}).get("inherit", True)
+    log_debug(f"Processing '{key_name}' for environment '{env_name}'. Inherit: {inherit}")
 
     if inherit:
         default_items = config.get("defaults", {}).get(key_name, {}).get("args", [])
@@ -47,6 +66,7 @@ def process_args(
             if not isinstance(item, str):
                 error_exit(f"Configuration Error: Argument '{item}' in '.defaults.{key_name}.args' must be a string.")
             final_args.append(f"{arg_prefix}{item}")
+        log_debug(f"Inherited default '{key_name}' args: {final_args}")
 
     env_items = config.get("environments", {}).get(env_name, {}).get(key_name, {}).get("args", [])
     if not isinstance(env_items, list):
@@ -55,57 +75,39 @@ def process_args(
         if not isinstance(item, str):
             error_exit(f"Configuration Error: Argument '{item}' in '.environments.{env_name}.{key_name}.args' must be a string.")
         final_args.append(f"{arg_prefix}{item}")
+    log_debug(f"Environment-specific '{key_name}' args: {env_items}")
 
     return final_args
 
-def process_paths(
-    config: Dict[str, Any], env_name: str, key_name: str, arg_prefix: str, working_dir: str
-) -> List[str]:
+def get_relative_path_for_tf(original_path_from_config: str, base_repo_path: Path, tf_working_dir_absolute: Path) -> str:
     """
-    Process a list of file paths, handling inheritance and making paths relative.
+    Calculates the path relative to the Terraform working directory where the `terraform` command will be run.
+    This ensures that `-var-file` or `-backend-config` paths are correctly interpreted by Terraform.
     Args:
-        config (Dict[str, Any]): The loaded YAML configuration.
-        env_name (str): The environment name.
-        key_name (str): The key to process (e.g., 'var-files').
-        arg_prefix (str): Prefix to prepend to each path.
-        working_dir (str): The working directory for relative paths.
+        original_path_from_config (str): Path as specified in .tf-branch-deploy.yml (relative to repository root).
+        base_repo_path (Path): The absolute Path object of the repository root (e.g., 'GITHUB_WORKSPACE/repo_checkout').
+        tf_working_dir_absolute (Path): The absolute Path object of the Terraform working directory.
     Returns:
-        List[str]: The processed path list.
+        str: The path relative to the Terraform working directory.
     """
-    final_paths: List[str] = []
-    inherit: bool = config.get("environments", {}).get(env_name, {}).get(key_name, {}).get("inherit", True)
+    abs_path_in_repo_checkout = base_repo_path / original_path_from_config
+    
+    if not abs_path_in_repo_checkout.exists():
+        error_exit(f"Configuration Error: File '{original_path_from_config}' specified in .tf-branch-deploy.yml not found at expected path '{abs_path_in_repo_checkout}'.")
 
-    if inherit:
-        default_items = config.get("defaults", {}).get(key_name, {}).get("paths", [])
-        if not isinstance(default_items, list):
-            error_exit(f"Configuration Error: '.defaults.{key_name}.paths' must be a list.")
-        for item in default_items:
-            if not isinstance(item, str):
-                error_exit(f"Configuration Error: Path '{item}' in '.defaults.{key_name}.paths' must be a string.")
-            p = Path(item)
-            if not p.exists():
-                error_exit(f"Configuration Error: Default file '{item}' specified in .terraform-branch-deploy.yml not found in repository root.")
-            relative_path = os.path.relpath(p, working_dir)
-            final_paths.append(f"{arg_prefix}{relative_path}")
+    try:
+        relative_path = abs_path_in_repo_checkout.relative_to(tf_working_dir_absolute)
+        log_debug(f"Resolved path '{original_path_from_config}' to '{relative_path}' relative to TF working dir '{tf_working_dir_absolute}'")
+        return str(relative_path)
+    except ValueError:
+        log_warning(f"Path '{original_path_from_config}' is not directly relative to Terraform working directory '{tf_working_dir_absolute}'. Using path relative to repository root.")
+        return str(abs_path_in_repo_checkout.relative_to(base_repo_path))
 
-    env_items = config.get("environments", {}).get(env_name, {}).get(key_name, {}).get("paths", [])
-    if not isinstance(env_items, list):
-        error_exit(f"Configuration Error: '.environments.{env_name}.{key_name}.paths' must be a list.")
-    for item in env_items:
-        if not isinstance(item, str):
-            error_exit(f"Configuration Error: Path '{item}' in '.environments.{env_name}.{key_name}.paths' must be a string.")
-        p = Path(item)
-        if not p.exists():
-            error_exit(f"Configuration Error: Environment file '{item}' specified in .terraform-branch-deploy.yml not found in repository root.")
-        relative_path = os.path.relpath(p, working_dir)
-        final_paths.append(f"{arg_prefix}{relative_path}")
-
-    return final_paths
 
 
 def main() -> None:
     """
-    Main entry point for prepare_terrachops.py.
+    Main entry point for prepare_tf_branch_deploy.py.
     Validates input, loads configuration, processes arguments and paths, and writes outputs for GitHub Actions.
     """
     # --- Robust Input Validation ---
@@ -116,91 +118,157 @@ def main() -> None:
     env_name: str = sys.argv[2]
     dynamic_params_str: str = sys.argv[3]
 
-    # Validate working directory
+    log_debug(f"Script received default_working_dir: '{default_working_dir}'")
+    log_debug(f"Script received env_name: '{env_name}'")
+    log_debug(f"Script received dynamic_params_str: '{dynamic_params_str}'")
+
     if not isinstance(default_working_dir, str) or not default_working_dir.strip():
-        error_exit("Invalid or empty working directory argument.")
+        error_exit("Invalid or empty working directory argument provided to script.")
     if not isinstance(env_name, str) or not env_name.strip():
-        error_exit("Invalid or empty environment name argument.")
+        error_exit("Invalid or empty environment name argument provided to script.")
     if not isinstance(dynamic_params_str, str):
-        error_exit("Invalid dynamic_params_str argument.")
+        error_exit("Invalid dynamic_params_str argument provided to script.")
 
     # --- GITHUB_OUTPUT Validation ---
     output_path = os.getenv("GITHUB_OUTPUT")
-    if not output_path or not Path(output_path).parent.exists():
-        error_exit("GITHUB_OUTPUT environment variable not set or invalid.")
-    # mypy: output_path is str here
-    if not isinstance(output_path, str):
-        error_exit("GITHUB_OUTPUT environment variable is not a string.")
+    if not output_path:
+        error_exit("GITHUB_OUTPUT environment variable not set. Cannot write outputs.")
+    if not Path(output_path).parent.exists():
+        error_exit(f"Parent directory for GITHUB_OUTPUT ('{Path(output_path).parent}') does not exist or is not accessible.")
 
-    config_path = Path(".terraform-branch-deploy.yml")
+    base_repo_path_for_tf_code = Path(os.getcwd())
+    log_debug(f"Script executing from base_repo_path_for_tf_code (repo_checkout): {base_repo_path_for_tf_code}")
+
+    original_repo_root_path = Path(os.getenv("GITHUB_WORKSPACE"))
+    log_debug(f"Original repository root (GITHUB_WORKSPACE): {original_repo_root_path}")
+
+    # --- Load Configuration File ---
+    config_file_name = ".tf-branch-deploy.yml"
+
+    config_path = original_repo_root_path / config_file_name
     config: Dict[str, Any] = {}
     if config_path.is_file():
-        log_info(f"✅ Found .terraform-branch-deploy.yml. Parsing configuration for environment: '{env_name}'")
+        log_info(f"✅ Found {config_file_name} at '{config_path}'. Parsing configuration for environment: '{env_name}'")
         with open(config_path, 'r') as f:
             try:
                 config = yaml.safe_load(f) or {}
+                log_debug(f"Loaded config: {config}")
             except yaml.YAMLError as e:
-                error_exit(f"Error parsing .terraform-branch-deploy.yml: {e}")
+                error_exit(f"Error parsing {config_file_name}: {e}")
     else:
-        log_info("⚠️  No .terraform-branch-deploy.yml found. Using action defaults.")
+        log_info(f"⚠️ No {config_file_name} found at '{config_path}'. Using action defaults and assuming 'production' environment configuration.")
 
-    # --- Validate Environment ---
+    # --- Validate Environment (if specified) ---
     if env_name and env_name != "production" and env_name not in config.get("environments", {}):
-        error_exit(f"Configuration Error: Environment '{env_name}' not found in .terraform-branch-deploy.yml.")
+        error_exit(f"Configuration Error: Environment '{env_name}' not found in '{config_file_name}'.")
 
-    # --- Determine Working Directory FIRST ---
-    working_dir: str = config.get("environments", {}).get(env_name, {}).get("working-directory", default_working_dir)
-    if not isinstance(working_dir, str) or not working_dir.strip():
-        error_exit("Invalid or empty working directory in configuration.")
+    # --- Determine Effective Terraform Working Directory ---
+    config_working_dir_rel_to_repo_root: str = config.get("environments", {}).get(env_name, {}).get("working-directory", default_working_dir)
+    
+    if config_working_dir_rel_to_repo_root.startswith("./"):
+        config_working_dir_rel_to_repo_root = config_working_dir_rel_to_repo_root[2:]
 
-    # Sanitize working_dir: Remove leading "./" if present
-    if working_dir.startswith("./"):
-        working_dir = working_dir[2:]
-    # Also handle if it's just "."
-    if working_dir == ".":
-        working_dir = "" # Set to empty string if it's just ".", effectively making it the root of 'repo_checkout'
+    if config_working_dir_rel_to_repo_root == ".":
+        config_working_dir_rel_to_repo_root = ""
 
-    # --- Build Arguments ---
-    init_args: List[str] = process_paths(config, env_name, "backend-configs", "-backend-config=", working_dir)
-    init_args.extend(process_args(config, env_name, "init-args", ""))
+    tf_module_absolute_path = base_repo_path_for_tf_code / config_working_dir_rel_to_repo_root
+    
+    if not tf_module_absolute_path.is_dir():
+        error_exit(f"Terraform working directory '{config_working_dir_rel_to_repo_root}' (resolved to '{tf_module_absolute_path}') not found or is not a directory. Please check 'working-directory' in '{config_file_name}'.")
+    
+    effective_working_dir_for_output = config_working_dir_rel_to_repo_root
+    log_info(f"Calculated effective Terraform working directory: '{effective_working_dir_for_output}' (relative to repo_checkout)")
 
-    plan_args: List[str] = process_paths(config, env_name, "var-files", "-var-file=", working_dir)
-    plan_args.extend(process_args(config, env_name, "plan-args", ""))
+    # --- Build Terraform Arguments: init, plan, apply ---
+    init_args_list: List[str] = []
+    plan_args_list: List[str] = []
+    apply_args_list: List[str] = []
 
-    apply_args: List[str] = process_args(config, env_name, "apply-args", "")
+    backend_configs_section = config.get("environments", {}).get(env_name, {}).get("backend-configs", {})
+    if backend_configs_section.get("inherit", True):
+        default_backend_paths = config.get("defaults", {}).get("backend-configs", {}).get("paths", [])
+        if not isinstance(default_backend_paths, list): error_exit(f"Configuration Error: '.defaults.backend-configs.paths' must be a list.")
+        for path_item in default_backend_paths:
+            if not isinstance(path_item, str): error_exit(f"Configuration Error: Path '{path_item}' in '.defaults.backend-configs.paths' must be a string.")
+            relative_tf_path = get_relative_path_for_tf(path_item, original_repo_root_path, tf_module_absolute_path)
+            init_args_list.append(f"-backend-config={relative_tf_path}")
+    
+    env_backend_paths = backend_configs_section.get("paths", [])
+    if not isinstance(env_backend_paths, list): error_exit(f"Configuration Error: '.environments.{env_name}.backend-configs.paths' must be a list.")
+    for path_item in env_backend_paths:
+        if not isinstance(path_item, str): error_exit(f"Configuration Error: Path '{path_item}' in '.environments.{env_name}.backend-configs.paths' must be a string.")
+        relative_tf_path = get_relative_path_for_tf(path_item, original_repo_root_path, tf_module_absolute_path)
+        init_args_list.append(f"-backend-config={relative_tf_path}")
+    log_debug(f"Collected init backend-configs: {init_args_list}")
 
-    # --- Layer on dynamic flags from comment ---
-    allowed_dynamic_flags: List[str] = ["--target", "-var"]
+    init_args_list.extend(process_args(config, env_name, "init-args", ""))
+    log_debug(f"Collected all init args: {init_args_list}")
+
+    var_files_section = config.get("environments", {}).get(env_name, {}).get("var-files", {})
+    if var_files_section.get("inherit", True):
+        default_var_paths = config.get("defaults", {}).get("var-files", {}).get("paths", [])
+        if not isinstance(default_var_paths, list): error_exit(f"Configuration Error: '.defaults.var-files.paths' must be a list.")
+        for path_item in default_var_paths:
+            if not isinstance(path_item, str): error_exit(f"Configuration Error: Path '{path_item}' in '.defaults.var-files.paths' must be a string.")
+            relative_tf_path = get_relative_path_for_tf(path_item, original_repo_root_path, tf_module_absolute_path)
+            plan_args_list.append(f"-var-file={relative_tf_path}")
+    
+    env_var_paths = var_files_section.get("paths", [])
+    if not isinstance(env_var_paths, list): error_exit(f"Configuration Error: '.environments.{env_name}.var-files.paths' must be a list.")
+    for path_item in env_var_paths:
+        if not isinstance(path_item, str): error_exit(f"Configuration Error: Path '{path_item}' in '.environments.{env_name}.var-files.paths' must be a string.")
+        relative_tf_path = get_relative_path_for_tf(path_item, original_repo_root_path, tf_module_absolute_path)
+        plan_args_list.append(f"-var-file={relative_tf_path}")
+    log_debug(f"Collected plan var-files: {plan_args_list}")
+
+    plan_args_list.extend(process_args(config, env_name, "plan-args", ""))
+    log_debug(f"Collected all plan args: {plan_args_list}")
+
+    apply_args_list.extend(process_args(config, env_name, "apply-args", ""))
+    log_debug(f"Collected all apply args: {apply_args_list}")
+
+    # --- Layer on dynamic flags from comment with robust sanitization ---
+    allowed_dynamic_flags_prefixes: List[str] = ["--target=", "-target=", "-var=", "--var="]
     dynamic_flags: List[str] = []
-    for param in dynamic_params_str.split():
-        for allowed in allowed_dynamic_flags:
-            if param.startswith(allowed):
-                # Only allow alphanumeric, dashes, underscores, equals, AND DOTS in dynamic flags
-                if not all(c.isalnum() or c in "-_=. []" for c in param): # Added '.' to allowed characters
-                    error_exit(f"Dynamic flag '{param}' contains invalid characters.")
-                dynamic_flags.append(param)
+    
+    # Use shlex.split to correctly parse arguments, respecting quotes.
+    parsed_params = shlex.split(dynamic_params_str)
+    log_debug(f"Parsed dynamic params from comment: {parsed_params}")
 
-    plan_args.extend(dynamic_flags)
+    for param in parsed_params:
+        is_allowed = False
+        for allowed_prefix in allowed_dynamic_flags_prefixes:
+            if param.startswith(allowed_prefix):
+                is_allowed = True
+                break
+        
+        if is_allowed:
+            dynamic_flags.append(param)
+        else:
+            log_warning(f"Ignoring potentially malicious or unsupported dynamic flag from comment: '{param}'. Only flags starting with '{', '.join(allowed_dynamic_flags_prefixes)}' are allowed.")
+
+    plan_args_list.extend(dynamic_flags) # Dynamic flags primarily apply to plan (and implicitly apply)
 
     # --- Write final values to GitHub Actions Output ---
-    final_init_args: str = ' '.join(init_args)
-    final_plan_args: str = ' '.join(plan_args)
-    final_apply_args: str = ' '.join(apply_args)
+    final_init_args_str: str = ' '.join(shlex.quote(arg) for arg in init_args_list)
+    final_plan_args_str: str = ' '.join(shlex.quote(arg) for arg in plan_args_list)
+    final_apply_args_str: str = ' '.join(shlex.quote(arg) for arg in apply_args_list)
 
     try:
         with open(output_path, "a") as f:
-            f.write(f"working_dir={working_dir}\n")
-            f.write(f"init_args={final_init_args}\n")
-            f.write(f"plan_args={final_plan_args}\n")
-            f.write(f"apply_args={final_apply_args}\n")
+            f.write(f"working_dir={effective_working_dir_for_output}\n")
+            f.write(f"init_args={final_init_args_str}\n")
+            f.write(f"plan_args={final_plan_args_str}\n")
+            f.write(f"apply_args={final_apply_args_str}\n")
+        log_debug(f"Successfully wrote outputs to GITHUB_OUTPUT: {output_path}")
     except Exception as e:
-        error_exit(f"Failed to write to GITHUB_OUTPUT: {e}")
+        error_exit(f"Failed to write to GITHUB_OUTPUT file '{output_path}': {e}")
 
     log_section("📝 terraform-branch-deploy configuration summary:")
-    log_info(f"    📁 Working Directory: {working_dir}")
-    log_info(f"    🏗️  Init Args: {final_init_args}")
-    log_info(f"    📋 Plan Args: {final_plan_args}")
-    log_info(f"    🚀 Apply Args: {final_apply_args}")
+    log_info(f"    📁 Terraform Working Directory (relative to repo_checkout): {effective_working_dir_for_output}")
+    log_info(f"    🏗️  Terraform Init Arguments: {final_init_args_str}")
+    log_info(f"    📋 Terraform Plan Arguments: {final_plan_args_str}")
+    log_info(f"    🚀 Terraform Apply Arguments: {final_apply_args_str}")
     log_info("✅ Configuration prepared for Terraform execution.")
 
 if __name__ == "__main__":

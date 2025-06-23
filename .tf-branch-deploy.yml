@@ -1,6 +1,3 @@
-# This file defines environment-specific configurations for terraform-branch-deploy.
-# It allows for granular control over Terraform command arguments per environment.
-
 defaults:
   var-files:
     paths:
