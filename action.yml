@@ -54,25 +54,29 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        SUDO=""
+        if command -v sudo >/dev/null 2>&1; then
+          SUDO="sudo"
+        fi
         if [[ "${{ runner.os }}" == "Linux" ]]; then
           if command -v apt-get >/dev/null 2>&1; then
             echo "📦 Updating apt-get and installing common dependencies..."
-            sudo apt-get update -y
+            $SUDO apt-get update -y
             for cmd in git curl unzip ca-certificates software-properties-common xz-utils; do
               if ! command -v "$cmd" >/dev/null 2>&1; then
                 echo "Installing $cmd..."
-                sudo apt-get install -y "$cmd"
+                $SUDO apt-get install -y "$cmd"
               else
                 echo "✅ $cmd is already installed."
               fi
             done
           elif command -v yum >/dev/null 2>&1; then
             echo "📦 Updating yum and installing common dependencies..."
-            sudo yum makecache
+            $SUDO yum makecache
             for cmd in git curl unzip ca-certificates xz-utils; do
               if ! command -v "$cmd" >/dev/null 2>&1; then
                 echo "Installing $cmd..."
-                sudo yum install -y "$cmd"
+                $SUDO yum install -y "$cmd"
               else
                 echo "✅ $cmd is already installed."
               fi
