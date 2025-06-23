@@ -170,6 +170,54 @@ runs:
           echo "✅ yq installed successfully."
         fi
 
+    - name: "📜 Install tfcmt"
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v tfcmt >/dev/null 2>&1; then
+          echo "✅ tfcmt is already installed. Version:"
+          tfcmt --version
+        else
+          echo "⬇️ Installing tfcmt..."
+          TFCMT_VERSION="v4.14.7"
+          OS_TYPE=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+
+          case "$ARCH" in
+            x86_64) ARCH_TAG=amd64 ;;
+            arm64) ARCH_TAG=arm64 ;;
+            aarch64) ARCH_TAG=arm64 ;;
+            *) echo "::error::Unsupported architecture for tfcmt: $ARCH" && exit 1 ;;
+          esac
+
+          if [[ "$OS_TYPE" == "darwin" ]]; then
+            ARCH_TAG_MAC="universal"
+          fi
+
+          TFCMT_FILENAME="tfcmt_${TFCMT_VERSION}_${OS_TYPE}_${ARCH_TAG_MAC:-$ARCH_TAG}"
+          TFCMT_URL="https://github.com/suzuki-shunsuke/tfcmt/releases/download/${TFCMT_VERSION}/${TFCMT_FILENAME}.tar.gz"
+          
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            TFCMT_URL="https://github.com/suzuki-shunsuke/tfcmt/releases/download/${TFCMT_VERSION}/tfcmt_${TFCMT_VERSION}_windows_amd64.zip"
+            echo "Attempting to download tfcmt from: $TFCMT_URL"
+            if ! (Invoke-WebRequest -Uri "$TFCMT_URL" -OutFile "tfcmt.zip" -UseBasicParsing); then
+              echo "::error::Failed to download tfcmt.zip from $TFCMT_URL."
+              exit 1
+            fi
+            Expand-Archive -Path "tfcmt.zip" -DestinationPath "${env:GITHUB_WORKSPACE}/.tfcmt_bin"
+            echo "${env:GITHUB_WORKSPACE}/.tfcmt_bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+            echo "✅ tfcmt installed successfully on Windows."
+          else
+            echo "Attempting to download tfcmt from: $TFCMT_URL"
+            if ! curl -sSL "$TFCMT_URL" | tar -xz -C /usr/local/bin; then
+              echo "::error::Failed to download and extract tfcmt from $TFCMT_URL."
+              exit 1
+            fi
+            tfcmt --version
+            echo "✅ tfcmt installed successfully."
+          fi
+        fi
+
     - name: "🚦 Pre-flight Checks"
       id: preflight
       run: |
@@ -415,136 +463,175 @@ runs:
         ARTIFACT_NEEDED: ${{ steps.truncate_rollback.outputs.artifact_needed }}
 
     # Terraform Plan:
-    - name: "📋 Terraform Plan"
+    - name: "📋 Terraform Plan with tfcmt"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      id: plan
+      id: plan_tfcmt
       run: |
         set -euo pipefail
-        PLAN_OUTPUT_FILE="tfplan.txt"
+
+        TFCMT_ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
+        TFCMT_COMMENT_ID="terraform-plan-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}"
         PLAN_BINARY_FILE="tfplan-${{ steps.branch-deploy.outputs.sha }}.binary"
 
-        echo "Running terraform plan..."
-        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out="$PLAN_BINARY_FILE" | tee "$PLAN_OUTPUT_FILE"
-        PLAN_EXIT_CODE=$?
+        TFCMT_COMMAND="tfcmt plan \
+          --owner=${{ github.repository_owner }} \
+          --repo=${{ github.event.repository.name }} \
+          --sha=${{ github.sha }} \
+          --issue-number=${TFCMT_ISSUE_NUMBER} \
+          --comment-id=${TFCMT_COMMENT_ID} \
+          --terraform-command='terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -out=${PLAN_BINARY_FILE}' \
+          --skip-create \
+          --color=false"
 
-        MAX_COMMENT_SIZE=64000
-        ARTIFACT_NEEDED=false
-        FULL_PLAN_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${PLAN_OUTPUT_FILE}"
+        echo "Running tfcmt command: $TFCMT_COMMAND"
+        ${TFCMT_COMMAND}
+        TFCMT_EXIT_CODE=$?
 
-        if [ -f "$FULL_PLAN_PATH" ] && [ $(wc -c < "$FULL_PLAN_PATH") -gt $MAX_COMMENT_SIZE ]; then
-          ARTIFACT_NEEDED=true
-          echo "artifact_needed=true" >> "$GITHUB_OUTPUT"
+        echo "tfcmt_exit_code=$TFCMT_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+        if [ "$TFCMT_EXIT_CODE" -eq 1 ]; then
+          echo "::error::Terraform plan (via tfcmt) failed with a critical error."
+        elif [ "$TFCMT_EXIT_CODE" -eq 2 ]; then
+          echo "::notice::Terraform plan (via tfcmt) indicates infrastructure changes are pending."
         else
-          echo "artifact_needed=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::Terraform plan (via tfcmt) indicates no changes are required."
         fi
-
-        echo "plan_exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-        if [ "$PLAN_EXIT_CODE" -eq 1 ]; then
-          echo "::error::Terraform plan failed with a critical error."
-        elif [ "$PLAN_EXIT_CODE" -eq 2 ]; then
-          echo "::notice::Terraform plan indicates infrastructure changes are pending."
-        else
-          echo "::notice::Terraform plan indicates no changes are required."
-        fi
-        exit "$PLAN_EXIT_CODE"
+        exit "$TFCMT_EXIT_CODE"
       shell: bash
-      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    - name: "📤 Upload Plan Output Artifact"
-      if: steps.plan.outputs.artifact_needed == 'true'
-      id: upload_plan_artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}
-        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
-        compression-level: 0
-
-    - name: "🔗 Get Plan Artifact URL"
-      if: steps.plan.outputs.artifact_needed == 'true'
-      id: get_plan_artifact_url
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const runId = context.runId;
-          const owner = context.repo.owner;
-          const repo = context.repo.repo;
-          const sha = "${{ steps.branch-deploy.outputs.sha }}";
-          const artifactName = `terraform-plan-output-${sha}`;
-
-          try {
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: owner,
-              repo: repo,
-              run_id: runId
-            });
-
-            const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
-            if (artifact) {
-              core.setOutput('artifact_url', artifact.archive_download_url);
-              core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
-            } else {
-              core.setOutput('artifact_url', '');
-              core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
-            }
-          } catch (error) {
-            core.setFailed(`Failed to get artifact URL: ${error.message}`);
-          }
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
-
-    - name: "✂️ Truncate Plan Output for PR Comment"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      id: truncate_plan
-      shell: bash
-      run: |
-        set -euo pipefail
-        MAX_COMMENT_SIZE=64000
-        INPUT_FILE="tfplan.txt"
-        OUTPUT_FILE="tfplan.trunc.txt"
-
-        FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
-        TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
-
-        ARTIFACT_NEEDED=${{ steps.plan.outputs.artifact_needed }}
-
-        if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
-          head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
-          echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-          {
-            echo "truncated_content<<EOF"
-            cat "$TRUNC_PATH"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-        else
-          cp "$FULL_PATH" "$TRUNC_PATH"
-          {
-            echo "truncated_content<<EOF"
-            cat "$TRUNC_PATH"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-        fi
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: "📝 Post Terraform Plan Output to PR"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-      with:
-        token: ${{ inputs.github-token }}
-        repository: ${{ github.repository }}
-        issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
-        comment-id: terraform-plan-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
-        body: |
-          ### 📋 Terraform Plan Status: ${{ (steps.plan.outputs.plan_exit_code == 0 && '✅ No Changes') || (steps.plan.outputs.plan_exit_code == 1 && '❌ Error') || (steps.plan.outputs.plan_exit_code == 2 && '⚠️ Changes Pending') || '❓ Unknown Status' }}
+    # - name: "📋 Terraform Plan"
+    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+    #   id: plan
+    #   run: |
+    #     set -euo pipefail
+    #     PLAN_OUTPUT_FILE="tfplan.txt"
+    #     PLAN_BINARY_FILE="tfplan-${{ steps.branch-deploy.outputs.sha }}.binary"
 
-          ```terraform
-          ${{ steps.truncate_plan.outputs.truncated_content }}
-          ```
-          ${{ steps.truncate_plan.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_plan_artifact_url.outputs.artifact_url) || '' }}
-      env:
-        PLAN_EXIT_CODE: ${{ steps.plan.outputs.plan_exit_code }}
-        ARTIFACT_URL: ${{ steps.get_plan_artifact_url.outputs.artifact_url }}
-        ARTIFACT_NEEDED: ${{ steps.truncate_plan.outputs.artifact_needed }}
+    #     echo "Running terraform plan..."
+    #     terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out="$PLAN_BINARY_FILE" | tee "$PLAN_OUTPUT_FILE"
+    #     PLAN_EXIT_CODE=$?
+
+    #     MAX_COMMENT_SIZE=64000
+    #     ARTIFACT_NEEDED=false
+    #     FULL_PLAN_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${PLAN_OUTPUT_FILE}"
+
+    #     if [ -f "$FULL_PLAN_PATH" ] && [ $(wc -c < "$FULL_PLAN_PATH") -gt $MAX_COMMENT_SIZE ]; then
+    #       ARTIFACT_NEEDED=true
+    #       echo "artifact_needed=true" >> "$GITHUB_OUTPUT"
+    #     else
+    #       echo "artifact_needed=false" >> "$GITHUB_OUTPUT"
+    #     fi
+
+    #     echo "plan_exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+    #     if [ "$PLAN_EXIT_CODE" -eq 1 ]; then
+    #       echo "::error::Terraform plan failed with a critical error."
+    #     elif [ "$PLAN_EXIT_CODE" -eq 2 ]; then
+    #       echo "::notice::Terraform plan indicates infrastructure changes are pending."
+    #     else
+    #       echo "::notice::Terraform plan indicates no changes are required."
+    #     fi
+    #     exit "$PLAN_EXIT_CODE"
+    #   shell: bash
+    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+
+    # - name: "📤 Upload Plan Output Artifact"
+    #   if: steps.plan.outputs.artifact_needed == 'true'
+    #   id: upload_plan_artifact
+    #   uses: actions/upload-artifact@v3
+    #   with:
+    #     name: terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}
+    #     path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
+    #     compression-level: 0
+
+    # - name: "🔗 Get Plan Artifact URL"
+    #   if: steps.plan.outputs.artifact_needed == 'true'
+    #   id: get_plan_artifact_url
+    #   uses: actions/github-script@v7
+    #   with:
+    #     script: |
+    #       const runId = context.runId;
+    #       const owner = context.repo.owner;
+    #       const repo = context.repo.repo;
+    #       const sha = "${{ steps.branch-deploy.outputs.sha }}";
+    #       const artifactName = `terraform-plan-output-${sha}`;
+
+    #       try {
+    #         const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+    #           owner: owner,
+    #           repo: repo,
+    #           run_id: runId
+    #         });
+
+    #         const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
+    #         if (artifact) {
+    #           core.setOutput('artifact_url', artifact.archive_download_url);
+    #           core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
+    #         } else {
+    #           core.setOutput('artifact_url', '');
+    #           core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
+    #         }
+    #       } catch (error) {
+    #         core.setFailed(`Failed to get artifact URL: ${error.message}`);
+    #       }
+    #   env:
+    #     GITHUB_TOKEN: ${{ inputs.github-token }}
+
+    # - name: "✂️ Truncate Plan Output for PR Comment"
+    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+    #   id: truncate_plan
+    #   shell: bash
+    #   run: |
+    #     set -euo pipefail
+    #     MAX_COMMENT_SIZE=64000
+    #     INPUT_FILE="tfplan.txt"
+    #     OUTPUT_FILE="tfplan.trunc.txt"
+
+    #     FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
+    #     TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
+
+    #     ARTIFACT_NEEDED=${{ steps.plan.outputs.artifact_needed }}
+
+    #     if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
+    #       head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
+    #       echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
+    #       {
+    #         echo "truncated_content<<EOF"
+    #         cat "$TRUNC_PATH"
+    #         echo "EOF"
+    #       } >> "$GITHUB_OUTPUT"
+    #     else
+    #       cp "$FULL_PATH" "$TRUNC_PATH"
+    #       {
+    #         echo "truncated_content<<EOF"
+    #         cat "$TRUNC_PATH"
+    #         echo "EOF"
+    #       } >> "$GITHUB_OUTPUT"
+    #     fi
+    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+
+    # - name: "📝 Post Terraform Plan Output to PR"
+    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+    #   uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
+    #   with:
+    #     token: ${{ inputs.github-token }}
+    #     repository: ${{ github.repository }}
+    #     issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
+    #     comment-id: terraform-plan-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
+    #     body: |
+    #       ### 📋 Terraform Plan Status: ${{ (steps.plan.outputs.plan_exit_code == 0 && '✅ No Changes') || (steps.plan.outputs.plan_exit_code == 1 && '❌ Error') || (steps.plan.outputs.plan_exit_code == 2 && '⚠️ Changes Pending') || '❓ Unknown Status' }}
+
+    #       ```terraform
+    #       ${{ steps.truncate_plan.outputs.truncated_content }}
+    #       ```
+    #       ${{ steps.truncate_plan.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_plan_artifact_url.outputs.artifact_url) || '' }}
+    #   env:
+    #     PLAN_EXIT_CODE: ${{ steps.plan.outputs.plan_exit_code }}
+    #     ARTIFACT_URL: ${{ steps.get_plan_artifact_url.outputs.artifact_url }}
+    #     ARTIFACT_NEEDED: ${{ steps.truncate_plan.outputs.artifact_needed }}
 
     - name: "📦 Upload Plan Binary Artifact"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}

@@ -278,10 +278,10 @@ def main() -> None:
         error_exit(f"Failed to write to GITHUB_OUTPUT file '{output_path}': {e}")
 
     log_section("📝 terraform-branch-deploy configuration summary:")
-    log_info(f"    📁 Terraform Working Directory (relative to repo_checkout): {effective_working_dir_for_output}")
-    log_info(f"    🏗️  Terraform Init Arguments: {final_init_args_str}")
-    log_info(f"    📋 Terraform Plan Arguments: {final_plan_args_str}")
-    log_info(f"    🚀 Terraform Apply Arguments: {final_apply_args_str}")
+    log_info(f"📁 Terraform Working Directory (relative to repo_checkout): {effective_working_dir_for_output}")
+    log_info(f"🏗️  Terraform Init Arguments: {final_init_args_str}")
+    log_info(f"📋 Terraform Plan Arguments: {final_plan_args_str}")
+    log_info(f"🚀 Terraform Apply Arguments: {final_apply_args_str}")
     log_info("✅ Configuration prepared for Terraform execution.")
 
 if __name__ == "__main__":
