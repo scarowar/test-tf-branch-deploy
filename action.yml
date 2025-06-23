@@ -194,8 +194,8 @@ runs:
             ARCH_TAG_MAC="universal"
           fi
 
-          TFCMT_FILENAME="tfcmt_${TFCMT_VERSION}_${OS_TYPE}_${ARCH_TAG_MAC:-$ARCH_TAG}"
-          TFCMT_URL="https://github.com/suzuki-shunsuke/tfcmt/releases/download/${TFCMT_VERSION}/${TFCMT_FILENAME}.tar.gz"
+          TFCMT_FILENAME="tfcmt_${OS_TYPE}_${ARCH_TAG_MAC:-$ARCH_TAG}.tar.gz"
+          TFCMT_URL="https://github.com/suzuki-shunsuke/tfcmt/releases/download/${TFCMT_VERSION}/${TFCMT_FILENAME}"
           
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             TFCMT_URL="https://github.com/suzuki-shunsuke/tfcmt/releases/download/${TFCMT_VERSION}/tfcmt_${TFCMT_VERSION}_windows_amd64.zip"
