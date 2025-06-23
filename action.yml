@@ -379,10 +379,18 @@ runs:
         if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
           head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
           echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-          echo "truncated_content=$(cat "$TRUNC_PATH")" >> "$GITHUB_OUTPUT"
+          {
+            echo "truncated_content<<EOF"
+            cat "$TRUNC_PATH"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
         else
           cp "$FULL_PATH" "$TRUNC_PATH"
-          echo "truncated_content=$(cat "$TRUNC_PATH")" >> "$GITHUB_OUTPUT"
+          {
+            echo "truncated_content<<EOF"
+            cat "$TRUNC_PATH"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
         fi
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
@@ -503,10 +511,18 @@ runs:
         if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
           head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
           echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-          echo "truncated_content=$(cat "$TRUNC_PATH")" >> "$GITHUB_OUTPUT"
+          {
+            echo "truncated_content<<EOF"
+            cat "$TRUNC_PATH"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
         else
           cp "$FULL_PATH" "$TRUNC_PATH"
-          echo "truncated_content=$(cat "$TRUNC_PATH")" >> "$GITHUB_OUTPUT"
+          {
+            echo "truncated_content<<EOF"
+            cat "$TRUNC_PATH"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
         fi
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
@@ -713,10 +729,18 @@ runs:
         if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
           head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
           echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-          echo "truncated_content=$(cat "$TRUNC_PATH")" >> "$GITHUB_OUTPUT"
+          {
+            echo "truncated_content<<EOF"
+            cat "$TRUNC_PATH"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
         else
           cp "$FULL_PATH" "$TRUNC_PATH"
-          echo "truncated_content=$(cat "$TRUNC_PATH")" >> "$GITHUB_OUTPUT"
+          {
+            echo "truncated_content<<EOF"
+            cat "$TRUNC_PATH"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
         fi
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
