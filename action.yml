@@ -470,18 +470,15 @@ runs:
         set -euo pipefail
 
         TFCMT_ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
-        TFCMT_COMMENT_ID="terraform-plan-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}"
         PLAN_BINARY_FILE="tfplan-${{ steps.branch-deploy.outputs.sha }}.binary"
 
         TFCMT_COMMAND="tfcmt plan \
           --owner=${{ github.repository_owner }} \
           --repo=${{ github.event.repository.name }} \
           --sha=${{ github.sha }} \
-          --issue-number=${TFCMT_ISSUE_NUMBER} \
-          --comment-id=${TFCMT_COMMENT_ID} \
-          --terraform-command='terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -out=${PLAN_BINARY_FILE}' \
-          --skip-create \
-          --color=false"
+          --pr=${TFCMT_ISSUE_NUMBER} \
+          -- \
+          terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -out=${PLAN_BINARY_FILE}"
 
         echo "Running tfcmt command: $TFCMT_COMMAND"
         ${TFCMT_COMMAND}
