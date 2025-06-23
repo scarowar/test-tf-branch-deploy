@@ -81,16 +81,18 @@ def process_args(
 
 def get_relative_path_for_tf(original_path_from_config: str, base_repo_path: Path, tf_working_dir_absolute: Path) -> str:
     """
-    Calculates the path relative to the Terraform working directory where the `terraform` command will be run.
-    This ensures that `-var-file` or `-backend-config` paths are correctly interpreted by Terraform.
+        Resolves a file path for Terraform CLI arguments (e.g., -var-file, -backend-config) to ensure it is valid
+        when running from the Terraform working directory.
     Args:
-        original_path_from_config (str): Path as specified in .tf-branch-deploy.yml (relative to repository root).
-        base_repo_path (Path): The absolute Path object of the repository root (e.g., 'GITHUB_WORKSPACE/repo_checkout').
-        tf_working_dir_absolute (Path): The absolute Path object of the Terraform working directory.
+        original_path_from_config (str): Path as specified in .tf-branch-deploy.yml (absolute or relative).
+        base_repo_path (Path): Absolute path to the repository root (e.g., $GITHUB_WORKSPACE/repo_checkout).
+        tf_working_dir_absolute (Path): Absolute path to the Terraform working directory.
     Returns:
-        str: The path relative to the Terraform working directory.
+        str: A path suitable for use as a Terraform CLI argument, relative to the working directory if possible,
+             otherwise absolute.
     """
-p = Path(original_path_from_config)
+    p = Path(original_path_from_config)
+
     if p.is_absolute():
         if not p.exists():
             error_exit(f"Configuration Error: Absolute file path '{original_path_from_config}' does not exist.")
