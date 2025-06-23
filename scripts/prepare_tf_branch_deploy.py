@@ -90,19 +90,30 @@ def get_relative_path_for_tf(original_path_from_config: str, base_repo_path: Pat
     Returns:
         str: The path relative to the Terraform working directory.
     """
-    abs_path_in_repo_checkout = base_repo_path / original_path_from_config
-    
-    if not abs_path_in_repo_checkout.exists():
-        error_exit(f"Configuration Error: File '{original_path_from_config}' specified in .tf-branch-deploy.yml not found at expected path '{abs_path_in_repo_checkout}'.")
+p = Path(original_path_from_config)
+    if p.is_absolute():
+        if not p.exists():
+            error_exit(f"Configuration Error: Absolute file path '{original_path_from_config}' does not exist.")
+        log_debug(f"Using absolute path for Terraform: {p}")
+        return str(p)
 
-    try:
-        relative_path = abs_path_in_repo_checkout.relative_to(tf_working_dir_absolute)
-        log_debug(f"Resolved path '{original_path_from_config}' to '{relative_path}' relative to TF working dir '{tf_working_dir_absolute}'")
+    abs_path_in_tf_working_dir = tf_working_dir_absolute / p
+    if abs_path_in_tf_working_dir.exists():
+        relative_path = abs_path_in_tf_working_dir.relative_to(tf_working_dir_absolute)
+        log_debug(f"Resolved path '{original_path_from_config}' to '{relative_path}' relative to TF working dir '{tf_working_dir_absolute}' (found in working dir)")
         return str(relative_path)
-    except ValueError:
-        log_warning(f"Path '{original_path_from_config}' is not directly relative to Terraform working directory '{tf_working_dir_absolute}'. Using path relative to repository root.")
-        return str(abs_path_in_repo_checkout.relative_to(base_repo_path))
 
+    abs_path_in_repo_checkout = base_repo_path / p
+    if abs_path_in_repo_checkout.exists():
+        try:
+            relative_path = abs_path_in_repo_checkout.relative_to(tf_working_dir_absolute)
+            log_debug(f"Resolved path '{original_path_from_config}' to '{relative_path}' relative to TF working dir '{tf_working_dir_absolute}' (found in repo root, relative to working dir)")
+            return str(relative_path)
+        except ValueError:
+            log_warning(f"Path '{original_path_from_config}' is not under Terraform working directory '{tf_working_dir_absolute}'. Using absolute path.")
+            return str(abs_path_in_repo_checkout)
+
+    error_exit(f"Configuration Error: File '{original_path_from_config}' specified in .tf-branch-deploy.yml not found relative to working directory or repository root.")
 
 
 def main() -> None:
