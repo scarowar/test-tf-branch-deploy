@@ -324,143 +324,190 @@ runs:
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     # Rollback Plan and Apply:
-    - name: "🚨 Rollback Plan and Apply"
+    - name: "🚨 Rollback Plan and Apply with tfcmt"
       if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-      id: rollback
+      id: rollback_tfcmt
       run: |
         set -euo pipefail
-        echo "🚨 Performing immediate plan and apply for stable branch rollback."
-        PLAN_OUTPUT_FILE="rollback_plan.txt"
-        APPLY_OUTPUT_FILE="rollback_apply.txt"
+        echo "🚨 Performing immediate plan and apply for stable branch rollback with tfcmt."
+
         PLAN_BINARY_FILE="rollback.plan"
+        TFCMT_ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
 
-        echo "Running terraform plan for rollback..."
-        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out="$PLAN_BINARY_FILE" | tee "$PLAN_OUTPUT_FILE"
-        PLAN_EXIT_CODE=${PIPESTATUS[0]}
+        echo "Running terraform plan for rollback and saving binary..."
+        terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out="$PLAN_BINARY_FILE"
+        PLAN_EXIT_CODE=$?
 
-        echo "Running terraform apply for rollback..."
-        terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} "$PLAN_BINARY_FILE" -no-color | tee "$APPLY_OUTPUT_FILE"
-        APPLY_EXIT_CODE=${PIPESTATUS[0]}
-
-        MAX_COMMENT_SIZE=64000
-        ARTIFACT_NEEDED=false
-        FULL_APPLY_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${APPLY_OUTPUT_FILE}"
-
-        if [ -f "$FULL_APPLY_PATH" ] && [ $(wc -c < "$FULL_APPLY_PATH") -gt $MAX_COMMENT_SIZE ]; then
-          ARTIFACT_NEEDED=true
-          echo "artifact_needed=true" >> $GITHUB_OUTPUT
-        else
-          echo "artifact_needed=false" >> $GITHUB_OUTPUT
+        if [ "$PLAN_EXIT_CODE" -eq 1 ]; then
+          echo "::error::Terraform plan for rollback failed with a critical error. Cannot proceed with apply."
+          exit 1
         fi
 
-        echo "apply_exit_code=$APPLY_EXIT_CODE" >> "$GITHUB_OUTPUT"
-        echo "plan_exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
+        echo "Running tfcmt apply for rollback using the generated plan..."
+        TFCMT_COMMAND="tfcmt apply \
+          --owner=${{ github.repository_owner }} \
+          --repo=${{ github.event.repository.name }} \
+          --sha=${{ github.sha }} \
+          --pr=${TFCMT_ISSUE_NUMBER} \
+          -- \
+          terraform apply -auto-approve ${PLAN_BINARY_FILE}"
 
-        if [ "$APPLY_EXIT_CODE" -eq 0 ]; then
-          echo "✅ Terraform rollback apply completed successfully."
-        elif [ "$APPLY_EXIT_CODE" -eq 1 ]; then
-          echo "::error::Terraform rollback apply failed with a critical error."
+        echo "Executing tfcmt command: $TFCMT_COMMAND"
+        ${TFCMT_COMMAND}
+        TFCMT_EXIT_CODE=$?
+
+        echo "tfcmt_exit_code=$TFCMT_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+        if [ "$TFCMT_EXIT_CODE" -eq 1 ]; then
+          echo "::error::Terraform rollback apply (via tfcmt) failed with a critical error."
+        elif [ "$TFCMT_EXIT_CODE" -eq 0 ]; then
+          echo "✅ Terraform rollback apply (via tfcmt) completed successfully."
         else
-          echo "::warning::Terraform rollback apply completed with non-zero exit code: $APPLY_EXIT_CODE."
+          echo "::warning::Terraform rollback apply (via tfcmt) completed with non-zero exit code: $TFCMT_EXIT_CODE. Review the tfcmt output for details."
         fi
-        exit "$APPLY_EXIT_CODE"
+        exit "$TFCMT_EXIT_CODE"
       shell: bash
-      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    - name: "📤 Upload Rollback Apply Output Artifact"
-      if: steps.rollback.outputs.artifact_needed == 'true'
-      id: upload_rollback_artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}
-        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
-        compression-level: 0
-
-    - name: "🔗 Get Rollback Artifact URL"
-      if: steps.rollback.outputs.artifact_needed == 'true'
-      id: get_rollback_artifact_url
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const runId = context.runId;
-          const owner = context.repo.owner;
-          const repo = context.repo.repo;
-          const sha = "${{ steps.branch-deploy.outputs.sha }}";
-          const artifactName = `rollback-apply-output-${sha}`;
-
-          try {
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: owner,
-              repo: repo,
-              run_id: runId
-            });
-
-            const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
-            if (artifact) {
-              core.setOutput('artifact_url', artifact.archive_download_url);
-              core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
-            } else {
-              core.setOutput('artifact_url', '');
-              core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
-            }
-          } catch (error) {
-            core.setFailed(`Failed to get artifact URL: ${error.message}`);
-          }
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
-
-    - name: "✂️ Truncate Rollback Apply Output for PR Comment"
-      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-      id: truncate_rollback
-      shell: bash
-      run: |
-        set -euo pipefail
-        MAX_COMMENT_SIZE=64000
-        INPUT_FILE="rollback_apply.txt"
-        OUTPUT_FILE="rollback_apply.trunc.txt"
-
-        FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
-        TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
-
-        ARTIFACT_NEEDED=${{ steps.rollback.outputs.artifact_needed }}
-
-        if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
-          head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
-          echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-          {
-            echo "truncated_content<<EOF"
-            cat "$TRUNC_PATH"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-        else
-          cp "$FULL_PATH" "$TRUNC_PATH"
-          {
-            echo "truncated_content<<EOF"
-            cat "$TRUNC_PATH"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-        fi
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: "📝 Post Rollback Apply Output to PR"
-      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-      with:
-        token: ${{ inputs.github-token }}
-        repository: ${{ github.repository }}
-        issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
-        comment-id: rollback-apply-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
-        body: |
-          ### 🚨 Rollback Deployment Status: ${{ (steps.rollback.outputs.apply_exit_code == 0 && '✅ Succeeded') || (steps.rollback.outputs.apply_exit_code == 1 && '❌ Failed') || '⚠️ Completed with Changes' }}
+    # - name: "🚨 Rollback Plan and Apply"
+    #   if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+    #   id: rollback
+    #   run: |
+    #     set -euo pipefail
+    #     echo "🚨 Performing immediate plan and apply for stable branch rollback."
+    #     PLAN_OUTPUT_FILE="rollback_plan.txt"
+    #     APPLY_OUTPUT_FILE="rollback_apply.txt"
+    #     PLAN_BINARY_FILE="rollback.plan"
 
-          ```terraform
-          ${{ steps.truncate_rollback.outputs.truncated_content }}
-          ```
-          ${{ steps.truncate_rollback.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_rollback_artifact_url.outputs.artifact_url) || '' }}
-      env:
-        APPLY_EXIT_CODE: ${{ steps.rollback.outputs.apply_exit_code }}
-        ARTIFACT_URL: ${{ steps.get_rollback_artifact_url.outputs.artifact_url }}
-        ARTIFACT_NEEDED: ${{ steps.truncate_rollback.outputs.artifact_needed }}
+    #     echo "Running terraform plan for rollback..."
+    #     terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out="$PLAN_BINARY_FILE" | tee "$PLAN_OUTPUT_FILE"
+    #     PLAN_EXIT_CODE=${PIPESTATUS[0]}
+
+    #     echo "Running terraform apply for rollback..."
+    #     terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} "$PLAN_BINARY_FILE" -no-color | tee "$APPLY_OUTPUT_FILE"
+    #     APPLY_EXIT_CODE=${PIPESTATUS[0]}
+
+    #     MAX_COMMENT_SIZE=64000
+    #     ARTIFACT_NEEDED=false
+    #     FULL_APPLY_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${APPLY_OUTPUT_FILE}"
+
+    #     if [ -f "$FULL_APPLY_PATH" ] && [ $(wc -c < "$FULL_APPLY_PATH") -gt $MAX_COMMENT_SIZE ]; then
+    #       ARTIFACT_NEEDED=true
+    #       echo "artifact_needed=true" >> $GITHUB_OUTPUT
+    #     else
+    #       echo "artifact_needed=false" >> $GITHUB_OUTPUT
+    #     fi
+
+    #     echo "apply_exit_code=$APPLY_EXIT_CODE" >> "$GITHUB_OUTPUT"
+    #     echo "plan_exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+    #     if [ "$APPLY_EXIT_CODE" -eq 0 ]; then
+    #       echo "✅ Terraform rollback apply completed successfully."
+    #     elif [ "$APPLY_EXIT_CODE" -eq 1 ]; then
+    #       echo "::error::Terraform rollback apply failed with a critical error."
+    #     else
+    #       echo "::warning::Terraform rollback apply completed with non-zero exit code: $APPLY_EXIT_CODE."
+    #     fi
+    #     exit "$APPLY_EXIT_CODE"
+    #   shell: bash
+    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+
+    # - name: "📤 Upload Rollback Apply Output Artifact"
+    #   if: steps.rollback.outputs.artifact_needed == 'true'
+    #   id: upload_rollback_artifact
+    #   uses: actions/upload-artifact@v3
+    #   with:
+    #     name: rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}
+    #     path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
+    #     compression-level: 0
+
+    # - name: "🔗 Get Rollback Artifact URL"
+    #   if: steps.rollback.outputs.artifact_needed == 'true'
+    #   id: get_rollback_artifact_url
+    #   uses: actions/github-script@v7
+    #   with:
+    #     script: |
+    #       const runId = context.runId;
+    #       const owner = context.repo.owner;
+    #       const repo = context.repo.repo;
+    #       const sha = "${{ steps.branch-deploy.outputs.sha }}";
+    #       const artifactName = `rollback-apply-output-${sha}`;
+
+    #       try {
+    #         const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+    #           owner: owner,
+    #           repo: repo,
+    #           run_id: runId
+    #         });
+
+    #         const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
+    #         if (artifact) {
+    #           core.setOutput('artifact_url', artifact.archive_download_url);
+    #           core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
+    #         } else {
+    #           core.setOutput('artifact_url', '');
+    #           core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
+    #         }
+    #       } catch (error) {
+    #         core.setFailed(`Failed to get artifact URL: ${error.message}`);
+    #       }
+    #   env:
+    #     GITHUB_TOKEN: ${{ inputs.github-token }}
+
+    # - name: "✂️ Truncate Rollback Apply Output for PR Comment"
+    #   if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+    #   id: truncate_rollback
+    #   shell: bash
+    #   run: |
+    #     set -euo pipefail
+    #     MAX_COMMENT_SIZE=64000
+    #     INPUT_FILE="rollback_apply.txt"
+    #     OUTPUT_FILE="rollback_apply.trunc.txt"
+
+    #     FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
+    #     TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
+
+    #     ARTIFACT_NEEDED=${{ steps.rollback.outputs.artifact_needed }}
+
+    #     if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
+    #       head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
+    #       echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
+    #       {
+    #         echo "truncated_content<<EOF"
+    #         cat "$TRUNC_PATH"
+    #         echo "EOF"
+    #       } >> "$GITHUB_OUTPUT"
+    #     else
+    #       cp "$FULL_PATH" "$TRUNC_PATH"
+    #       {
+    #         echo "truncated_content<<EOF"
+    #         cat "$TRUNC_PATH"
+    #         echo "EOF"
+    #       } >> "$GITHUB_OUTPUT"
+    #     fi
+    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+
+    # - name: "📝 Post Rollback Apply Output to PR"
+    #   if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+    #   uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
+    #   with:
+    #     token: ${{ inputs.github-token }}
+    #     repository: ${{ github.repository }}
+    #     issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
+    #     comment-id: rollback-apply-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
+    #     body: |
+    #       ### 🚨 Rollback Deployment Status: ${{ (steps.rollback.outputs.apply_exit_code == 0 && '✅ Succeeded') || (steps.rollback.outputs.apply_exit_code == 1 && '❌ Failed') || '⚠️ Completed with Changes' }}
+
+    #       ```terraform
+    #       ${{ steps.truncate_rollback.outputs.truncated_content }}
+    #       ```
+    #       ${{ steps.truncate_rollback.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_rollback_artifact_url.outputs.artifact_url) || '' }}
+    #   env:
+    #     APPLY_EXIT_CODE: ${{ steps.rollback.outputs.apply_exit_code }}
+    #     ARTIFACT_URL: ${{ steps.get_rollback_artifact_url.outputs.artifact_url }}
+    #     ARTIFACT_NEEDED: ${{ steps.truncate_rollback.outputs.artifact_needed }}
 
     # Terraform Plan:
     - name: "📋 Terraform Plan with tfcmt"
