@@ -696,7 +696,7 @@ runs:
         if [ -z "$RUN_ID" ]; then
           echo "::error::Could not extract RUN_ID from tag '$TAG'. Tag format might be unexpected."
           exit 1
-        FCI
+        fi
 
         echo "Extracted RUN_ID: $RUN_ID"
         echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
@@ -712,138 +712,179 @@ runs:
         name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
         path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: "🚀 Terraform Apply"
+    - name: "🚀 Terraform Apply with tfcmt"
       if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-      id: apply
+      id: apply_tfcmt
       run: |
         set -euo pipefail
         PLAN_BINARY_FILE="tfplan-${{ steps.branch-deploy.outputs.sha }}.binary"
-        APPLY_OUTPUT_FILE="apply_output.txt"
 
         if [ ! -f "$PLAN_BINARY_FILE" ]; then
           echo "::error::Terraform plan binary '$PLAN_BINARY_FILE' not found. Ensure the plan step completed successfully and the artifact was uploaded/downloaded correctly."
           exit 1
         fi
 
-        echo "Running terraform apply..."
-        terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve "$PLAN_BINARY_FILE" | tee "$APPLY_OUTPUT_FILE"
-        APPLY_EXIT_CODE=$?
+        TFCMT_ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
 
-        MAX_COMMENT_SIZE=64000
-        ARTIFACT_NEEDED=false
-        FULL_APPLY_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${APPLY_OUTPUT_FILE}"
+        TFCMT_COMMAND="tfcmt apply \
+          --owner=${{ github.repository_owner }} \
+          --repo=${{ github.event.repository.name }} \
+          --sha=${{ github.sha }} \
+          --pr=${TFCMT_ISSUE_NUMBER} \
+          -- \
+          terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -auto-approve ${PLAN_BINARY_FILE}"
 
-        if [ -f "$FULL_APPLY_PATH" ] && [ $(wc -c < "$FULL_APPLY_PATH") -gt $MAX_COMMENT_SIZE ]; then
-          ARTIFACT_NEEDED=true
-          echo "artifact_needed=true" >> "$GITHUB_OUTPUT"
+        echo "Running tfcmt command: $TFCMT_COMMAND"
+        ${TFCMT_COMMAND}
+        TFCMT_EXIT_CODE=$?
+
+        echo "tfcmt_exit_code=$TFCMT_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+        if [ "$TFCMT_EXIT_CODE" -eq 1 ]; then
+          echo "::error::Terraform apply (via tfcmt) failed with a critical error."
+        elif [ "$TFCMT_EXIT_CODE" -eq 0 ]; then
+          echo "::notice::Terraform apply (via tfcmt) completed successfully."
         else
-          echo "artifact_needed=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::Terraform apply (via tfcmt) completed with non-zero exit code: $TFCMT_EXIT_CODE."
         fi
-
-        echo "apply_exit_code=$APPLY_EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-        if [ "$APPLY_EXIT_CODE" -eq 0 ]; then
-          echo "✅ Terraform apply completed successfully."
-        elif [ "$APPLY_EXIT_CODE" -eq 1 ]; then
-          echo "::error::Terraform apply failed with a critical error."
-        else
-          echo "::warning::Terraform apply completed with non-zero exit code: $APPLY_EXIT_CODE."
-        fi
-        exit "$APPLY_EXIT_CODE"
+        exit "$TFCMT_EXIT_CODE"
       shell: bash
-      working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    - name: "📤 Upload Apply Output Artifact"
-      if: steps.apply.outputs.artifact_needed == 'true'
-      id: upload_apply_artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
-        path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
-        compression-level: 0
-
-    - name: "🔗 Get Apply Artifact URL"
-      if: steps.apply.outputs.artifact_needed == 'true'
-      id: get_apply_artifact_url
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const runId = context.runId;
-          const owner = context.repo.owner;
-          const repo = context.repo.repo;
-          const sha = "${{ steps.branch-deploy.outputs.sha }}";
-          const artifactName = `terraform-apply-output-${sha}`;
-
-          try {
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: owner,
-              repo: repo,
-              run_id: runId
-            });
-
-            const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
-            if (artifact) {
-              core.setOutput('artifact_url', artifact.archive_download_url);
-              core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
-            } else {
-              core.setOutput('artifact_url', '');
-              core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
-            }
-          } catch (error) {
-            core.setFailed(`Failed to get artifact URL: ${error.message}`);
-          }
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
-
-    - name: "✂️ Truncate Apply Output for PR Comment"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-      id: truncate_apply
-      shell: bash
-      run: |
-        set -euo pipefail
-        MAX_COMMENT_SIZE=64000
-        INPUT_FILE="apply_output.txt"
-        OUTPUT_FILE="apply_output.trunc.txt"
-
-        FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
-        TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
-
-        ARTIFACT_NEEDED=${{ steps.apply.outputs.artifact_needed }}
-
-        if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
-          head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
-          echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-          {
-            echo "truncated_content<<EOF"
-            cat "$TRUNC_PATH"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-        else
-          cp "$FULL_PATH" "$TRUNC_PATH"
-          {
-            echo "truncated_content<<EOF"
-            cat "$TRUNC_PATH"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-        fi
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
-    - name: "📝 Post Terraform Apply Output to PR"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-      with:
-        token: ${{ inputs.github-token }}
-        repository: ${{ github.repository }}
-        issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
-        comment-id: terraform-apply-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
-        body: |
-          ### 🚀 Terraform Apply Status: ${{ (steps.apply.outputs.apply_exit_code == 0 && '✅ Succeeded') || (steps.apply.outputs.apply_exit_code == 1 && '❌ Failed') || '⚠️ Completed with Changes' }}
+    # - name: "🚀 Terraform Apply"
+    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+    #   id: apply
+    #   run: |
+    #     set -euo pipefail
+    #     PLAN_BINARY_FILE="tfplan-${{ steps.branch-deploy.outputs.sha }}.binary"
+    #     APPLY_OUTPUT_FILE="apply_output.txt"
 
-          ```terraform
-          ${{ steps.truncate_apply.outputs.truncated_content }}
-          ```
-          ${{ steps.truncate_apply.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_apply_artifact_url.outputs.artifact_url) || '' }}
-      env:
-        APPLY_EXIT_CODE: ${{ steps.apply.outputs.apply_exit_code }}
-        ARTIFACT_URL: ${{ steps.get_apply_artifact_url.outputs.artifact_url }}
-        ARTIFACT_NEEDED: ${{ steps.truncate_apply.outputs.artifact_needed }}
+    #     if [ ! -f "$PLAN_BINARY_FILE" ]; then
+    #       echo "::error::Terraform plan binary '$PLAN_BINARY_FILE' not found. Ensure the plan step completed successfully and the artifact was uploaded/downloaded correctly."
+    #       exit 1
+    #     fi
+
+    #     echo "Running terraform apply..."
+    #     terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve "$PLAN_BINARY_FILE" | tee "$APPLY_OUTPUT_FILE"
+    #     APPLY_EXIT_CODE=$?
+
+    #     MAX_COMMENT_SIZE=64000
+    #     ARTIFACT_NEEDED=false
+    #     FULL_APPLY_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${APPLY_OUTPUT_FILE}"
+
+    #     if [ -f "$FULL_APPLY_PATH" ] && [ $(wc -c < "$FULL_APPLY_PATH") -gt $MAX_COMMENT_SIZE ]; then
+    #       ARTIFACT_NEEDED=true
+    #       echo "artifact_needed=true" >> "$GITHUB_OUTPUT"
+    #     else
+    #       echo "artifact_needed=false" >> "$GITHUB_OUTPUT"
+    #     fi
+
+    #     echo "apply_exit_code=$APPLY_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+    #     if [ "$APPLY_EXIT_CODE" -eq 0 ]; then
+    #       echo "✅ Terraform apply completed successfully."
+    #     elif [ "$APPLY_EXIT_CODE" -eq 1 ]; then
+    #       echo "::error::Terraform apply failed with a critical error."
+    #     else
+    #       echo "::warning::Terraform apply completed with non-zero exit code: $APPLY_EXIT_CODE."
+    #     fi
+    #     exit "$APPLY_EXIT_CODE"
+    #   shell: bash
+    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+
+    # - name: "📤 Upload Apply Output Artifact"
+    #   if: steps.apply.outputs.artifact_needed == 'true'
+    #   id: upload_apply_artifact
+    #   uses: actions/upload-artifact@v3
+    #   with:
+    #     name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
+    #     path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
+    #     compression-level: 0
+
+    # - name: "🔗 Get Apply Artifact URL"
+    #   if: steps.apply.outputs.artifact_needed == 'true'
+    #   id: get_apply_artifact_url
+    #   uses: actions/github-script@v7
+    #   with:
+    #     script: |
+    #       const runId = context.runId;
+    #       const owner = context.repo.owner;
+    #       const repo = context.repo.repo;
+    #       const sha = "${{ steps.branch-deploy.outputs.sha }}";
+    #       const artifactName = `terraform-apply-output-${sha}`;
+
+    #       try {
+    #         const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+    #           owner: owner,
+    #           repo: repo,
+    #           run_id: runId
+    #         });
+
+    #         const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
+    #         if (artifact) {
+    #           core.setOutput('artifact_url', artifact.archive_download_url);
+    #           core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
+    #         } else {
+    #           core.setOutput('artifact_url', '');
+    #           core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
+    #         }
+    #       } catch (error) {
+    #         core.setFailed(`Failed to get artifact URL: ${error.message}`);
+    #       }
+    #   env:
+    #     GITHUB_TOKEN: ${{ inputs.github-token }}
+
+    # - name: "✂️ Truncate Apply Output for PR Comment"
+    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+    #   id: truncate_apply
+    #   shell: bash
+    #   run: |
+    #     set -euo pipefail
+    #     MAX_COMMENT_SIZE=64000
+    #     INPUT_FILE="apply_output.txt"
+    #     OUTPUT_FILE="apply_output.trunc.txt"
+
+    #     FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
+    #     TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
+
+    #     ARTIFACT_NEEDED=${{ steps.apply.outputs.artifact_needed }}
+
+    #     if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
+    #       head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
+    #       echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
+    #       {
+    #         echo "truncated_content<<EOF"
+    #         cat "$TRUNC_PATH"
+    #         echo "EOF"
+    #       } >> "$GITHUB_OUTPUT"
+    #     else
+    #       cp "$FULL_PATH" "$TRUNC_PATH"
+    #       {
+    #         echo "truncated_content<<EOF"
+    #         cat "$TRUNC_PATH"
+    #         echo "EOF"
+    #       } >> "$GITHUB_OUTPUT"
+    #     fi
+    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
+
+    # - name: "📝 Post Terraform Apply Output to PR"
+    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+    #   uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
+    #   with:
+    #     token: ${{ inputs.github-token }}
+    #     repository: ${{ github.repository }}
+    #     issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
+    #     comment-id: terraform-apply-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
+    #     body: |
+    #       ### 🚀 Terraform Apply Status: ${{ (steps.apply.outputs.apply_exit_code == 0 && '✅ Succeeded') || (steps.apply.outputs.apply_exit_code == 1 && '❌ Failed') || '⚠️ Completed with Changes' }}
+
+    #       ```terraform
+    #       ${{ steps.truncate_apply.outputs.truncated_content }}
+    #       ```
+    #       ${{ steps.truncate_apply.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_apply_artifact_url.outputs.artifact_url) || '' }}
+    #   env:
+    #     APPLY_EXIT_CODE: ${{ steps.apply.outputs.apply_exit_code }}
+    #     ARTIFACT_URL: ${{ steps.get_apply_artifact_url.outputs.artifact_url }}
+    #     ARTIFACT_NEEDED: ${{ steps.truncate_apply.outputs.artifact_needed }}
