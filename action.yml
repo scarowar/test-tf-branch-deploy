@@ -66,6 +66,21 @@ runs:
         ref: ${{ github.sha }}
         fetch-depth: 1
 
+    - name: "🔎 Validate .tf-branch-deploy.yml against schema"
+      if: ${{ inputs.skip != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -f "${GITHUB_WORKSPACE}/.tf-branch-deploy.yml" ]; then
+          npx --yes ajv-cli@5.0.0 validate -s "${GITHUB_WORKSPACE}/tf-branch-deploy.schema.json" -d "${GITHUB_WORKSPACE}/.tf-branch-deploy.yml" --strict=false --yaml || {
+            echo "::error::Schema validation failed for .tf-branch-deploy.yml. Please fix the configuration file."
+            exit 1
+          }
+          echo "✅ .tf-branch-deploy.yml is valid against the schema."
+        else
+          echo "::notice::.tf-branch-deploy.yml not found, skipping schema validation."
+        fi
+
     - name: "🛠️ Install Common System Utilities (Linux/macOS)"
       if: ${{ inputs.skip != 'true' }}
       shell: bash
