@@ -1,10 +1,10 @@
 name: "terraform-branch-deploy"
 
-description: "A reusable composite action for branch-based, IssueOps-driven Terraform deployments."
-author: "Scarowar"
+description: "Enabling Terraform Branch Deployments through IssueOps with GitHub Actions."
+author: "Sourab Kanthavar"
 
 branding:
-  icon: "terminal"
+  icon: "git-branch"
   color: "purple"
 
 inputs:
@@ -41,6 +41,22 @@ inputs:
     required: false
     default: "main"
 
+  # --- Skip Mode for Early Environment Extraction ---
+  skip:
+    description: "If true, the action will only extract and output the target environment and related info, then exit early without running any setup, dependency installation, or deployment steps. Useful for workflows that need to determine the environment and access environment-scoped secrets without performing a deployment."
+    required: false
+    default: "false"
+
+  # --- Admins and Admins PAT (branch-deploy passthrough) ---
+  admins:
+    description: "A comma separated list of GitHub usernames or teams that should be considered admins by this Action. Admins can deploy pull requests without the need for branch protection approvals. Example: 'monalisa,octocat,my-org/my-team'"
+    required: false
+    default: "false"
+  admins_pat:
+    description: "A GitHub personal access token with 'read:org' scopes. This is only needed if you are using the 'admins' option with a GitHub org team. For example: 'my-org/my-team'"
+    required: false
+    default: "false"
+
 runs:
   using: "composite"
   steps:
@@ -51,6 +67,7 @@ runs:
         fetch-depth: 1
 
     - name: "🛠️ Install Common System Utilities (Linux/macOS)"
+      if: ${{ inputs.skip != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -106,16 +123,19 @@ runs:
         fi
 
     - name: "🌐 Setup Node.js Environment"
+      if: ${{ inputs.skip != 'true' }}
       uses: actions/setup-node@v4
       with:
         node-version: "20"
 
     - name: "🐍 Setup Python Environment and Dependencies"
+      if: ${{ inputs.skip != 'true' }}
       uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
     - name: "📜 Install yq (YAML Processor)"
+      if: ${{ inputs.skip != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -171,6 +191,7 @@ runs:
         fi
 
     - name: "📜 Install tfcmt"
+      if: ${{ inputs.skip != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -242,8 +263,23 @@ runs:
         trigger: ${{ inputs.trigger }}
         environment_targets: "${{ steps.preflight.outputs.available_envs || 'production' }}"
         stable_branch: ${{ inputs.stable_branch }}
+        admins: ${{ inputs.admins }}
+        admins_pat: ${{ inputs.admins_pat }}
+
+    # Early exit for skip mode: output environment info and stop
+    - name: "🔎 Early Exit for Skip Mode"
+      if: ${{ inputs.skip == 'true' }}
+      id: skip
+      run: |
+        echo "env=${{ steps.branch-deploy.outputs.environment }}" >> $GITHUB_OUTPUT
+        echo "continue=${{ steps.branch-deploy.outputs.continue }}" >> $GITHUB_OUTPUT
+        echo "noop=${{ steps.branch-deploy.outputs.noop }}" >> $GITHUB_OUTPUT
+        echo "sha=${{ steps.branch-deploy.outputs.sha }}" >> $GITHUB_OUTPUT
+        exit 0
+      shell: bash
 
     - name: "📥 Checkout Target Code for Terraform Execution"
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.continue == 'true' }}
       uses: actions/checkout@v4
       with:
         ref: ${{ steps.branch-deploy.outputs.sha }}
@@ -251,14 +287,14 @@ runs:
         path: repo_checkout
 
     - name: "🔑 Ensure prepare_tf_branch_deploy.py is executable"
-      if: steps.branch-deploy.outputs.continue == 'true'
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.continue == 'true' }}
       run: |
         set -euo pipefail
         chmod +x ${GITHUB_ACTION_PATH}/scripts/prepare_tf_branch_deploy.py
       shell: bash
 
     - name: "📝 Prepare terraform-branch-deploy Commands"
-      if: steps.branch-deploy.outputs.continue == 'true'
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.continue == 'true' }}
       id: prepare_cmds
       run: |
         set -euo pipefail
@@ -285,13 +321,13 @@ runs:
       working-directory: repo_checkout
 
     - name: "⚙️ Setup Terraform CLI"
-      if: steps.branch-deploy.outputs.continue == 'true'
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.continue == 'true' }}
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
       with:
         terraform_version: ${{ inputs.terraform-version }}
 
     - name: "🌱 Terraform Init"
-      if: steps.branch-deploy.outputs.continue == 'true'
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.continue == 'true' }}
       id: init
       run: |
         set -euo pipefail
@@ -302,7 +338,7 @@ runs:
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "🧹 Terraform Format Check"
-      if: steps.branch-deploy.outputs.continue == 'true'
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.continue == 'true' }}
       id: fmt
       run: |
         set -euo pipefail
@@ -313,7 +349,7 @@ runs:
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "✅ Terraform Validate"
-      if: steps.branch-deploy.outputs.continue == 'true'
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.continue == 'true' }}
       id: validate
       run: |
         set -euo pipefail
@@ -325,7 +361,7 @@ runs:
 
     # Rollback Plan and Apply:
     - name: "🚨 Rollback Plan and Apply with tfcmt"
-      if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: rollback_tfcmt
       run: |
         set -euo pipefail
@@ -371,147 +407,9 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
-    # - name: "🚨 Rollback Plan and Apply"
-    #   if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-    #   id: rollback
-    #   run: |
-    #     set -euo pipefail
-    #     echo "🚨 Performing immediate plan and apply for stable branch rollback."
-    #     PLAN_OUTPUT_FILE="rollback_plan.txt"
-    #     APPLY_OUTPUT_FILE="rollback_apply.txt"
-    #     PLAN_BINARY_FILE="rollback.plan"
-
-    #     echo "Running terraform plan for rollback..."
-    #     terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out="$PLAN_BINARY_FILE" | tee "$PLAN_OUTPUT_FILE"
-    #     PLAN_EXIT_CODE=${PIPESTATUS[0]}
-
-    #     echo "Running terraform apply for rollback..."
-    #     terraform apply -auto-approve ${{ steps.prepare_cmds.outputs.apply_args }} "$PLAN_BINARY_FILE" -no-color | tee "$APPLY_OUTPUT_FILE"
-    #     APPLY_EXIT_CODE=${PIPESTATUS[0]}
-
-    #     MAX_COMMENT_SIZE=64000
-    #     ARTIFACT_NEEDED=false
-    #     FULL_APPLY_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${APPLY_OUTPUT_FILE}"
-
-    #     if [ -f "$FULL_APPLY_PATH" ] && [ $(wc -c < "$FULL_APPLY_PATH") -gt $MAX_COMMENT_SIZE ]; then
-    #       ARTIFACT_NEEDED=true
-    #       echo "artifact_needed=true" >> $GITHUB_OUTPUT
-    #     else
-    #       echo "artifact_needed=false" >> $GITHUB_OUTPUT
-    #     fi
-
-    #     echo "apply_exit_code=$APPLY_EXIT_CODE" >> "$GITHUB_OUTPUT"
-    #     echo "plan_exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-    #     if [ "$APPLY_EXIT_CODE" -eq 0 ]; then
-    #       echo "✅ Terraform rollback apply completed successfully."
-    #     elif [ "$APPLY_EXIT_CODE" -eq 1 ]; then
-    #       echo "::error::Terraform rollback apply failed with a critical error."
-    #     else
-    #       echo "::warning::Terraform rollback apply completed with non-zero exit code: $APPLY_EXIT_CODE."
-    #     fi
-    #     exit "$APPLY_EXIT_CODE"
-    #   shell: bash
-    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    # - name: "📤 Upload Rollback Apply Output Artifact"
-    #   if: steps.rollback.outputs.artifact_needed == 'true'
-    #   id: upload_rollback_artifact
-    #   uses: actions/upload-artifact@v3
-    #   with:
-    #     name: rollback-apply-output-${{ steps.branch-deploy.outputs.sha }}
-    #     path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/rollback_apply.txt
-    #     compression-level: 0
-
-    # - name: "🔗 Get Rollback Artifact URL"
-    #   if: steps.rollback.outputs.artifact_needed == 'true'
-    #   id: get_rollback_artifact_url
-    #   uses: actions/github-script@v7
-    #   with:
-    #     script: |
-    #       const runId = context.runId;
-    #       const owner = context.repo.owner;
-    #       const repo = context.repo.repo;
-    #       const sha = "${{ steps.branch-deploy.outputs.sha }}";
-    #       const artifactName = `rollback-apply-output-${sha}`;
-
-    #       try {
-    #         const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-    #           owner: owner,
-    #           repo: repo,
-    #           run_id: runId
-    #         });
-
-    #         const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
-    #         if (artifact) {
-    #           core.setOutput('artifact_url', artifact.archive_download_url);
-    #           core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
-    #         } else {
-    #           core.setOutput('artifact_url', '');
-    #           core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
-    #         }
-    #       } catch (error) {
-    #         core.setFailed(`Failed to get artifact URL: ${error.message}`);
-    #       }
-    #   env:
-    #     GITHUB_TOKEN: ${{ inputs.github-token }}
-
-    # - name: "✂️ Truncate Rollback Apply Output for PR Comment"
-    #   if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-    #   id: truncate_rollback
-    #   shell: bash
-    #   run: |
-    #     set -euo pipefail
-    #     MAX_COMMENT_SIZE=64000
-    #     INPUT_FILE="rollback_apply.txt"
-    #     OUTPUT_FILE="rollback_apply.trunc.txt"
-
-    #     FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
-    #     TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
-
-    #     ARTIFACT_NEEDED=${{ steps.rollback.outputs.artifact_needed }}
-
-    #     if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
-    #       head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
-    #       echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-    #       {
-    #         echo "truncated_content<<EOF"
-    #         cat "$TRUNC_PATH"
-    #         echo "EOF"
-    #       } >> "$GITHUB_OUTPUT"
-    #     else
-    #       cp "$FULL_PATH" "$TRUNC_PATH"
-    #       {
-    #         echo "truncated_content<<EOF"
-    #         cat "$TRUNC_PATH"
-    #         echo "EOF"
-    #       } >> "$GITHUB_OUTPUT"
-    #     fi
-    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    # - name: "📝 Post Rollback Apply Output to PR"
-    #   if: steps.branch-deploy.outputs.ref == inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false'
-    #   uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-    #   with:
-    #     token: ${{ inputs.github-token }}
-    #     repository: ${{ github.repository }}
-    #     issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
-    #     comment-id: rollback-apply-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
-    #     body: |
-    #       ### 🚨 Rollback Deployment Status: ${{ (steps.rollback.outputs.apply_exit_code == 0 && '✅ Succeeded') || (steps.rollback.outputs.apply_exit_code == 1 && '❌ Failed') || '⚠️ Completed with Changes' }}
-
-    #       ```terraform
-    #       ${{ steps.truncate_rollback.outputs.truncated_content }}
-    #       ```
-    #       ${{ steps.truncate_rollback.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_rollback_artifact_url.outputs.artifact_url) || '' }}
-    #   env:
-    #     APPLY_EXIT_CODE: ${{ steps.rollback.outputs.apply_exit_code }}
-    #     ARTIFACT_URL: ${{ steps.get_rollback_artifact_url.outputs.artifact_url }}
-    #     ARTIFACT_NEEDED: ${{ steps.truncate_rollback.outputs.artifact_needed }}
-
     # Terraform Plan:
     - name: "📋 Terraform Plan with tfcmt"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       id: plan_tfcmt
       run: |
         set -euo pipefail
@@ -546,139 +444,8 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
-    # - name: "📋 Terraform Plan"
-    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-    #   id: plan
-    #   run: |
-    #     set -euo pipefail
-    #     PLAN_OUTPUT_FILE="tfplan.txt"
-    #     PLAN_BINARY_FILE="tfplan-${{ steps.branch-deploy.outputs.sha }}.binary"
-
-    #     echo "Running terraform plan..."
-    #     terraform plan ${{ steps.prepare_cmds.outputs.plan_args }} -no-color -out="$PLAN_BINARY_FILE" | tee "$PLAN_OUTPUT_FILE"
-    #     PLAN_EXIT_CODE=$?
-
-    #     MAX_COMMENT_SIZE=64000
-    #     ARTIFACT_NEEDED=false
-    #     FULL_PLAN_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${PLAN_OUTPUT_FILE}"
-
-    #     if [ -f "$FULL_PLAN_PATH" ] && [ $(wc -c < "$FULL_PLAN_PATH") -gt $MAX_COMMENT_SIZE ]; then
-    #       ARTIFACT_NEEDED=true
-    #       echo "artifact_needed=true" >> "$GITHUB_OUTPUT"
-    #     else
-    #       echo "artifact_needed=false" >> "$GITHUB_OUTPUT"
-    #     fi
-
-    #     echo "plan_exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-    #     if [ "$PLAN_EXIT_CODE" -eq 1 ]; then
-    #       echo "::error::Terraform plan failed with a critical error."
-    #     elif [ "$PLAN_EXIT_CODE" -eq 2 ]; then
-    #       echo "::notice::Terraform plan indicates infrastructure changes are pending."
-    #     else
-    #       echo "::notice::Terraform plan indicates no changes are required."
-    #     fi
-    #     exit "$PLAN_EXIT_CODE"
-    #   shell: bash
-    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    # - name: "📤 Upload Plan Output Artifact"
-    #   if: steps.plan.outputs.artifact_needed == 'true'
-    #   id: upload_plan_artifact
-    #   uses: actions/upload-artifact@v3
-    #   with:
-    #     name: terraform-plan-output-${{ steps.branch-deploy.outputs.sha }}
-    #     path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/tfplan.txt
-    #     compression-level: 0
-
-    # - name: "🔗 Get Plan Artifact URL"
-    #   if: steps.plan.outputs.artifact_needed == 'true'
-    #   id: get_plan_artifact_url
-    #   uses: actions/github-script@v7
-    #   with:
-    #     script: |
-    #       const runId = context.runId;
-    #       const owner = context.repo.owner;
-    #       const repo = context.repo.repo;
-    #       const sha = "${{ steps.branch-deploy.outputs.sha }}";
-    #       const artifactName = `terraform-plan-output-${sha}`;
-
-    #       try {
-    #         const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-    #           owner: owner,
-    #           repo: repo,
-    #           run_id: runId
-    #         });
-
-    #         const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
-    #         if (artifact) {
-    #           core.setOutput('artifact_url', artifact.archive_download_url);
-    #           core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
-    #         } else {
-    #           core.setOutput('artifact_url', '');
-    #           core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
-    #         }
-    #       } catch (error) {
-    #         core.setFailed(`Failed to get artifact URL: ${error.message}`);
-    #       }
-    #   env:
-    #     GITHUB_TOKEN: ${{ inputs.github-token }}
-
-    # - name: "✂️ Truncate Plan Output for PR Comment"
-    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-    #   id: truncate_plan
-    #   shell: bash
-    #   run: |
-    #     set -euo pipefail
-    #     MAX_COMMENT_SIZE=64000
-    #     INPUT_FILE="tfplan.txt"
-    #     OUTPUT_FILE="tfplan.trunc.txt"
-
-    #     FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
-    #     TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
-
-    #     ARTIFACT_NEEDED=${{ steps.plan.outputs.artifact_needed }}
-
-    #     if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
-    #       head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
-    #       echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-    #       {
-    #         echo "truncated_content<<EOF"
-    #         cat "$TRUNC_PATH"
-    #         echo "EOF"
-    #       } >> "$GITHUB_OUTPUT"
-    #     else
-    #       cp "$FULL_PATH" "$TRUNC_PATH"
-    #       {
-    #         echo "truncated_content<<EOF"
-    #         cat "$TRUNC_PATH"
-    #         echo "EOF"
-    #       } >> "$GITHUB_OUTPUT"
-    #     fi
-    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    # - name: "📝 Post Terraform Plan Output to PR"
-    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
-    #   uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-    #   with:
-    #     token: ${{ inputs.github-token }}
-    #     repository: ${{ github.repository }}
-    #     issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
-    #     comment-id: terraform-plan-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
-    #     body: |
-    #       ### 📋 Terraform Plan Status: ${{ (steps.plan.outputs.plan_exit_code == 0 && '✅ No Changes') || (steps.plan.outputs.plan_exit_code == 1 && '❌ Error') || (steps.plan.outputs.plan_exit_code == 2 && '⚠️ Changes Pending') || '❓ Unknown Status' }}
-
-    #       ```terraform
-    #       ${{ steps.truncate_plan.outputs.truncated_content }}
-    #       ```
-    #       ${{ steps.truncate_plan.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_plan_artifact_url.outputs.artifact_url) || '' }}
-    #   env:
-    #     PLAN_EXIT_CODE: ${{ steps.plan.outputs.plan_exit_code }}
-    #     ARTIFACT_URL: ${{ steps.get_plan_artifact_url.outputs.artifact_url }}
-    #     ARTIFACT_NEEDED: ${{ steps.truncate_plan.outputs.artifact_needed }}
-
     - name: "📦 Upload Plan Binary Artifact"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       uses: actions/upload-artifact@v3
       with:
         name: terraform-plan-bin-${{ steps.branch-deploy.outputs.sha }}
@@ -687,7 +454,7 @@ runs:
 
     - name: "🏷️ Tag Commit with Plan Run ID"
       shell: bash
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'true' }}
       env:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
@@ -718,7 +485,7 @@ runs:
 
     # Terraform Apply:
     - name: "🔍 Find Plan Run ID from Git Tag"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: find_run_id
       run: |
         set -euo pipefail
@@ -751,7 +518,7 @@ runs:
       working-directory: repo_checkout
 
     - name: "⬇️ Download Plan Binary Artifact"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       uses: dawidd6/action-download-artifact@ac66b43f0e6a346234dd65d4d0c8fbb31cb316e5
       with:
         github_token: ${{ inputs.github-token }}
@@ -760,7 +527,7 @@ runs:
         path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
 
     - name: "🚀 Terraform Apply with tfcmt"
-      if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
+      if: ${{ inputs.skip != 'true' && steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
       id: apply_tfcmt
       run: |
         set -euo pipefail
@@ -799,139 +566,3 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    # - name: "🚀 Terraform Apply"
-    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-    #   id: apply
-    #   run: |
-    #     set -euo pipefail
-    #     PLAN_BINARY_FILE="tfplan-${{ steps.branch-deploy.outputs.sha }}.binary"
-    #     APPLY_OUTPUT_FILE="apply_output.txt"
-
-    #     if [ ! -f "$PLAN_BINARY_FILE" ]; then
-    #       echo "::error::Terraform plan binary '$PLAN_BINARY_FILE' not found. Ensure the plan step completed successfully and the artifact was uploaded/downloaded correctly."
-    #       exit 1
-    #     fi
-
-    #     echo "Running terraform apply..."
-    #     terraform apply ${{ steps.prepare_cmds.outputs.apply_args }} -no-color -auto-approve "$PLAN_BINARY_FILE" | tee "$APPLY_OUTPUT_FILE"
-    #     APPLY_EXIT_CODE=$?
-
-    #     MAX_COMMENT_SIZE=64000
-    #     ARTIFACT_NEEDED=false
-    #     FULL_APPLY_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${APPLY_OUTPUT_FILE}"
-
-    #     if [ -f "$FULL_APPLY_PATH" ] && [ $(wc -c < "$FULL_APPLY_PATH") -gt $MAX_COMMENT_SIZE ]; then
-    #       ARTIFACT_NEEDED=true
-    #       echo "artifact_needed=true" >> "$GITHUB_OUTPUT"
-    #     else
-    #       echo "artifact_needed=false" >> "$GITHUB_OUTPUT"
-    #     fi
-
-    #     echo "apply_exit_code=$APPLY_EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-    #     if [ "$APPLY_EXIT_CODE" -eq 0 ]; then
-    #       echo "✅ Terraform apply completed successfully."
-    #     elif [ "$APPLY_EXIT_CODE" -eq 1 ]; then
-    #       echo "::error::Terraform apply failed with a critical error."
-    #     else
-    #       echo "::warning::Terraform apply completed with non-zero exit code: $APPLY_EXIT_CODE."
-    #     fi
-    #     exit "$APPLY_EXIT_CODE"
-    #   shell: bash
-    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    # - name: "📤 Upload Apply Output Artifact"
-    #   if: steps.apply.outputs.artifact_needed == 'true'
-    #   id: upload_apply_artifact
-    #   uses: actions/upload-artifact@v3
-    #   with:
-    #     name: terraform-apply-output-${{ steps.branch-deploy.outputs.sha }}
-    #     path: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/apply_output.txt
-    #     compression-level: 0
-
-    # - name: "🔗 Get Apply Artifact URL"
-    #   if: steps.apply.outputs.artifact_needed == 'true'
-    #   id: get_apply_artifact_url
-    #   uses: actions/github-script@v7
-    #   with:
-    #     script: |
-    #       const runId = context.runId;
-    #       const owner = context.repo.owner;
-    #       const repo = context.repo.repo;
-    #       const sha = "${{ steps.branch-deploy.outputs.sha }}";
-    #       const artifactName = `terraform-apply-output-${sha}`;
-
-    #       try {
-    #         const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-    #           owner: owner,
-    #           repo: repo,
-    #           run_id: runId
-    #         });
-
-    #         const artifact = artifacts.data.artifacts.find(a => a.name === artifactName);
-    #         if (artifact) {
-    #           core.setOutput('artifact_url', artifact.archive_download_url);
-    #           core.debug(`Found artifact URL: ${artifact.archive_download_url}`);
-    #         } else {
-    #           core.setOutput('artifact_url', '');
-    #           core.warning(`Artifact '${artifactName}' not found for run ${runId}. This might indicate a problem with artifact upload.`);
-    #         }
-    #       } catch (error) {
-    #         core.setFailed(`Failed to get artifact URL: ${error.message}`);
-    #       }
-    #   env:
-    #     GITHUB_TOKEN: ${{ inputs.github-token }}
-
-    # - name: "✂️ Truncate Apply Output for PR Comment"
-    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-    #   id: truncate_apply
-    #   shell: bash
-    #   run: |
-    #     set -euo pipefail
-    #     MAX_COMMENT_SIZE=64000
-    #     INPUT_FILE="apply_output.txt"
-    #     OUTPUT_FILE="apply_output.trunc.txt"
-
-    #     FULL_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${INPUT_FILE}"
-    #     TRUNC_PATH="${GITHUB_WORKSPACE}/repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}/${OUTPUT_FILE}"
-
-    #     ARTIFACT_NEEDED=${{ steps.apply.outputs.artifact_needed }}
-
-    #     if [ -f "$FULL_PATH" ] && [ $(wc -c < "$FULL_PATH") -gt $MAX_COMMENT_SIZE ]; then
-    #       head -c "$MAX_COMMENT_SIZE" "$FULL_PATH" > "$TRUNC_PATH"
-    #       echo -e "\n---\n:warning: Output truncated. See artifact for full details." >> "$TRUNC_PATH"
-    #       {
-    #         echo "truncated_content<<EOF"
-    #         cat "$TRUNC_PATH"
-    #         echo "EOF"
-    #       } >> "$GITHUB_OUTPUT"
-    #     else
-    #       cp "$FULL_PATH" "$TRUNC_PATH"
-    #       {
-    #         echo "truncated_content<<EOF"
-    #         cat "$TRUNC_PATH"
-    #         echo "EOF"
-    #       } >> "$GITHUB_OUTPUT"
-    #     fi
-    #   working-directory: repo_checkout/${{ steps.prepare_cmds.outputs.working_dir }}
-
-    # - name: "📝 Post Terraform Apply Output to PR"
-    #   if: ${{ steps.branch-deploy.outputs.ref != inputs.stable_branch && steps.branch-deploy.outputs.noop == 'false' }}
-    #   uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
-    #   with:
-    #     token: ${{ inputs.github-token }}
-    #     repository: ${{ github.repository }}
-    #     issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
-    #     comment-id: terraform-apply-${{ steps.branch-deploy.outputs.sha }}-${{ steps.branch-deploy.outputs.environment }}
-    #     body: |
-    #       ### 🚀 Terraform Apply Status: ${{ (steps.apply.outputs.apply_exit_code == 0 && '✅ Succeeded') || (steps.apply.outputs.apply_exit_code == 1 && '❌ Failed') || '⚠️ Completed with Changes' }}
-
-    #       ```terraform
-    #       ${{ steps.truncate_apply.outputs.truncated_content }}
-    #       ```
-    #       ${{ steps.truncate_apply.outputs.artifact_needed == 'true' && format('Output truncated. See full log [here]({0}).', steps.get_apply_artifact_url.outputs.artifact_url) || '' }}
-    #   env:
-    #     APPLY_EXIT_CODE: ${{ steps.apply.outputs.apply_exit_code }}
-    #     ARTIFACT_URL: ${{ steps.get_apply_artifact_url.outputs.artifact_url }}
-    #     ARTIFACT_NEEDED: ${{ steps.truncate_apply.outputs.artifact_needed }}
