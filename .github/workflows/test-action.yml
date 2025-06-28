@@ -22,4 +22,4 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           noop-trigger: ".plan"
           trigger: ".apply"
-          stable_branch: "develop"
+          stable_branch: "main"
