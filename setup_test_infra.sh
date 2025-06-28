@@ -1,14 +1,8 @@
 #!/bin/bash
-#
-# setup_test_infra.sh
-#
-# This script creates the complete directory structure and all necessary
-# configuration and Terraform files for testing the Terrachops v0.1.0 release.
-# Run this script from the root of your 'terrachops' repository.
 
 set -e
 
-echo "🚀 Starting setup of Terrachops test infrastructure..."
+echo "🚀 Starting setup of terraform-branch-deploy test infrastructure..."
 
 # 1. Create the common.tfvars file
 echo "📝 Creating common.tfvars..."
