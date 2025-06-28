@@ -1,3 +1,8 @@
+default-environment: dev
+
+production-environments:
+  - prod
+
 defaults:
   var-files:
     paths:
