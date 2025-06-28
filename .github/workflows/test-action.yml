@@ -1,23 +1,25 @@
-name: 'Test Terrachops Action'
+name: "Test Terrachops Action"
 
 on:
-    issue_comment:
-        types: [created]
+  issue_comment:
+    types: [created]
 
 permissions:
-    pull-requests: write
-    contents: write
-    deployments: write
+  pull-requests: write
+  deployments: write
+  contents: write
+  checks: read
+  statuses: read
 
 jobs:
-  test:
+  test-tf-branch-deploy:
+    if: ${{ github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Run Terrachops
-        uses: ./action
+      - name: Terraform Branch Deploy
+        uses: scarowar/terraform-branch-deploy@main
         with:
-            github-token: ${{ secrets.GITHUB_TOKEN }}
-            skip-sparse-checkout: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          noop-trigger: ".plan"
+          trigger: ".apply"
+          stable_branch: "develop"
