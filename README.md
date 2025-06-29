@@ -1,3 +1,3 @@
-# Terrachops Test
+# test-terraform-branch-deploy
 
-Test repository for anything and everything related to Terrachops
+Test repository for terraform-branch-deploy
