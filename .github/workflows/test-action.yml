@@ -17,9 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Terraform Branch Deploy
-        uses: scarowar/terraform-branch-deploy@refactor/modular-actions
+        uses: scarowar/terraform-branch-deploy@fix/compatibility
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          noop-trigger: ".plan"
-          trigger: ".apply"
           stable_branch: "main"
