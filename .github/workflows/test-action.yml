@@ -17,7 +17,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Terraform Branch Deploy
-        uses: scarowar/terraform-branch-deploy@fix/compatibility
+        id: branch-deploy
+        uses: scarowar/terraform-branch-deploy@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          stable_branch: "main"
+          skip: true
+
+      - name: Echo environment to use
+        if: ${{ always() }}
+        run: |
+          echo "Environment to use: ${{ steps.branch-deploy.outputs.env }}"
+          echo "All branch-deploy outputs: env='${{ steps.branch-deploy.outputs.env }}', continue='${{ steps.branch-deploy.outputs.continue }}', noop='${{ steps.branch-deploy.outputs.noop }}', sha='${{ steps.branch-deploy.outputs.sha }}'"
+
+      - name: Terraform Branch Deploy
+        uses: scarowar/terraform-branch-deploy@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stable_branch: "main"
