@@ -1,4 +1,4 @@
-name: "Test Terrachops Action"
+name: "Test Terrachops Action from feature branch"
 
 on:
   issue_comment:
