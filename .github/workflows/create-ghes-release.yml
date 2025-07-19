@@ -77,7 +77,7 @@ jobs:
           gh release create "$GHES_TAG" \
             --target "$RELEASE_BRANCH" \
             --title "v${VERSION} (GHES)" \
-            --notes "$RELEASE_NOTES"
+            --notes "$RELEASE_NOTES" \
             --latest=false
 
       - name: 🧹 Cleanup release branch
