@@ -77,9 +77,10 @@ jobs:
           gh release create "$GHES_TAG" \
             --target "$RELEASE_BRANCH" \
             --title "v${VERSION} (GHES)" \
-            --notes "$RELEASE_NOTES"
+            --notes "$RELEASE_NOTES" \
+            --latest=false
 
-      # - name: 🧹 Cleanup release branch
-      #   if: always() && steps.commit_and_push.outputs.pushed == 'true'
-      #   run: |
-      #     git push origin --delete release/v${{ steps.get_version.outputs.version }}-ghes || true
+      - name: 🧹 Cleanup release branch
+        if: always() && steps.commit_and_push.outputs.pushed == 'true'
+        run: |
+          git push origin --delete release/v${{ steps.get_version.outputs.version }}-ghes || true
