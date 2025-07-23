@@ -12,27 +12,32 @@ permissions:
   statuses: read
 
 jobs:
-  test-tf-branch-deploy:
+  test-tf-branch-deploy-skip:
     if: ${{ github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     steps:
       - name: Terraform Branch Deploy
-        id: tf-branch-deploy
-        uses: scarowar/terraform-branch-deploy@main
+        id: tf-branch-deploy-skip
+        uses: scarowar/terraform-branch-deploy@chore/outputs
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stable_branch: "main"
           skip: true
 
-      - name: Echo environment to use
-        if: ${{ always() }}
+      - name: Echo outputs from skip mode of terraform-branch-deploy
+        if: ${{ steps.tf-branch-deploy-skip.outputs.continue == 'true' }}
         run: |
-          echo "Environment to use: ${{ steps.tf-branch-deploy.outputs.env }}"
-          echo "All tf-branch-deploy outputs: env='${{ steps.tf-branch-deploy.outputs.env }}', continue='${{ steps.tf-branch-deploy.outputs.continue }}', noop='${{ steps.tf-branch-deploy.outputs.noop }}', sha='${{ steps.tf-branch-deploy.outputs.sha }}'"
+          echo "All tf-branch-deploy-skip outputs: env='${{ steps.tf-branch-deploy-skip.outputs.env }}', continue='${{ steps.tf-branch-deploy-skip.outputs.continue }}', sha='${{ steps.tf-branch-deploy-skip.outputs.sha }}', rollback='${{ steps.tf-branch-deploy-skip.outputs.rollback }}', plan='${{ steps.tf-branch-deploy-skip.outputs.plan }}', apply='${{ steps.tf-branch-deploy-skip.outputs.apply }}', params='${{ steps.tf-branch-deploy-skip.outputs.params }}', parsed_params='${{ steps.tf-branch-deploy-skip.outputs.parsed_params }}'"
 
       - name: Terraform Branch Deploy
-        if: ${{ steps.tf-branch-deploy.outputs.continue == 'true' }}
-        uses: scarowar/terraform-branch-deploy@main
+        id: tf-branch-deploy
+        if: ${{ steps.tf-branch-deploy-skip.outputs.continue == 'true' }}
+        uses: scarowar/terraform-branch-deploy@chore/outputs
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stable_branch: "main"
+
+      - name: Echo outputs from skip mode of terraform-branch-deploy
+        if: ${{ steps.tf-branch-deploy.outputs.continue == 'true' }}
+        run: |
+          echo "All tf-branch-deploy outputs: env='${{ steps.tf-branch-deploy.outputs.env }}', continue='${{ steps.tf-branch-deploy.outputs.continue }}', sha='${{ steps.tf-branch-deploy.outputs.sha }}', rollback='${{ steps.tf-branch-deploy.outputs.rollback }}', plan='${{ steps.tf-branch-deploy.outputs.plan }}', apply='${{ steps.tf-branch-deploy.outputs.apply }}', params='${{ steps.tf-branch-deploy.outputs.params }}', parsed_params='${{ steps.tf-branch-deploy.outputs.parsed_params }}'"
