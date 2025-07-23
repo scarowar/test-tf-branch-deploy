@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Terraform Branch Deploy
-        id: branch-deploy
+        id: tf-branch-deploy
         uses: scarowar/terraform-branch-deploy@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -27,10 +27,11 @@ jobs:
       - name: Echo environment to use
         if: ${{ always() }}
         run: |
-          echo "Environment to use: ${{ steps.branch-deploy.outputs.env }}"
-          echo "All branch-deploy outputs: env='${{ steps.branch-deploy.outputs.env }}', continue='${{ steps.branch-deploy.outputs.continue }}', noop='${{ steps.branch-deploy.outputs.noop }}', sha='${{ steps.branch-deploy.outputs.sha }}'"
+          echo "Environment to use: ${{ steps.tf-branch-deploy.outputs.env }}"
+          echo "All tf-branch-deploy outputs: env='${{ steps.tf-branch-deploy.outputs.env }}', continue='${{ steps.tf-branch-deploy.outputs.continue }}', noop='${{ steps.tf-branch-deploy.outputs.noop }}', sha='${{ steps.tf-branch-deploy.outputs.sha }}'"
 
       - name: Terraform Branch Deploy
+        if: ${{ steps.tf-branch-deploy.outputs.continue == 'true' }}
         uses: scarowar/terraform-branch-deploy@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
