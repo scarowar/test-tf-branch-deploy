@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Terraform Branch Deploy
         id: tf-branch-deploy-skip
-        uses: scarowar/terraform-branch-deploy@fix/skip-mode
+        uses: scarowar/terraform-branch-deploy@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stable_branch: "main"
@@ -32,7 +32,7 @@ jobs:
       - name: Terraform Branch Deploy
         id: tf-branch-deploy
         if: ${{ steps.tf-branch-deploy-skip.outputs.continue == 'true' }}
-        uses: scarowar/terraform-branch-deploy@fix/skip-mode
+        uses: scarowar/terraform-branch-deploy@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           stable_branch: "main"
