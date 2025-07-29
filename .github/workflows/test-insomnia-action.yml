@@ -1,0 +1,66 @@
+name: E2E Insomnia Action Tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e-insomnia-action:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        scenario:
+          - name: "Basic Test Suite"
+            command: "run test"
+            identifier: "Sample Suite"
+            env: "Base Environment"
+            working-directory: "test-data/sample-export.yaml"
+          - name: "Collection Run"
+            command: "run collection"
+            identifier: "Sample Collection"
+            env: "Base Environment"
+            working-directory: "test-data/sample-export.yaml"
+          - name: "Fail Fast"
+            command: "run test"
+            identifier: "Failing Suite"
+            env: "Base Environment"
+            working-directory: "test-data/failing-export.yaml"
+            extra-args: "--bail"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Inso CLI
+        uses: Kong/setup-inso@v2
+        with:
+          inso-version: "latest"
+
+      - name: Run Insomnia Action (${{ matrix.scenario.name }})
+        uses: scarowar/insomnia-action@feat/action
+        with:
+          command: ${{ matrix.scenario.command }}
+          identifier: ${{ matrix.scenario.identifier }}
+          environment: ${{ matrix.scenario.env }}
+          working-directory: ${{ matrix.scenario.working-directory }}
+          pr-comment: "true"
+          fail-on-error: "false"
+          extra-args: ${{ matrix.scenario.extra-args || '' }}
+
+      - name: Show Markdown Report
+        if: always()
+        run: cat insomnia_report.md || echo "No markdown report found"
+
+      - name: Show JSON Report
+        if: always()
+        run: cat insomnia_report.json || echo "No JSON report found"

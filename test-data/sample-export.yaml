@@ -1,0 +1,55 @@
+type: collection.insomnia.rest/5.0
+name: My first collection
+meta:
+  id: wrk_3a7510324cf84b5897f0d228cd571f14
+  created: 1753537874271
+  modified: 1753537874271
+  description: ""
+collection:
+  - url: https://ipapi.co/json
+    name: My first request
+    meta:
+      id: req_2dbae47667374c1a82ab726bbb0b91f0
+      created: 1753537874339
+      modified: 1753809278121
+      isPrivate: false
+      description: ""
+      sortKey: -1753537874339
+    method: GET
+    headers:
+      - name: User-Agent
+        value: insomnia/11.3.0
+    scripts:
+      afterResponse: |+
+        
+        insomnia.test('Check if status is 200', () => {
+            insomnia.expect(insomnia.response.code).to.eql(200);
+        });
+
+        insomnia.test('Check if response includes ip', () => {
+        		const jsonBody = insomnia.response.json();
+            insomnia.expect(jsonBody).to.have.property('ip');
+        });
+
+
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_c4936865d604f1fa9ca000888bfb098709303d67
+    created: 1753537874275
+    modified: 1753809280246
+environments:
+  name: Base Environment
+  meta:
+    id: env_c4936865d604f1fa9ca000888bfb098709303d67
+    created: 1753537874274
+    modified: 1753809280248
+    isPrivate: false
