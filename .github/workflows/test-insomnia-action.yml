@@ -4,6 +4,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   e2e-insomnia-action:
     runs-on: ubuntu-latest
@@ -30,21 +34,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Set up Inso CLI
-        uses: Kong/setup-inso@v2
-        with:
-          inso-version: 10.3.1
 
       - name: Run Insomnia Action (${{ matrix.scenario.name }})
         uses: scarowar/insomnia-action@feat/action
