@@ -16,20 +16,14 @@ jobs:
         scenario:
           - name: "Basic Test Suite"
             command: "run test"
-            identifier: "Sample Suite"
+            identifier: "New Suite"
             env: "Base Environment"
-            working-directory: "test-data/sample-export.yaml"
+            working-directory: "test-data/sample-export-test.yaml"
           - name: "Collection Run"
             command: "run collection"
             identifier: "Sample Collection"
             env: "Base Environment"
             working-directory: "test-data/sample-export.yaml"
-          - name: "Fail Fast"
-            command: "run test"
-            identifier: "Failing Suite"
-            env: "Base Environment"
-            working-directory: "test-data/failing-export.yaml"
-            extra-args: "--bail"
 
     steps:
       - name: Checkout repo

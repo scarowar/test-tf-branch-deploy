@@ -1,0 +1,65 @@
+type: spec.insomnia.rest/5.0
+name: My Design Document
+meta:
+  id: wrk_583fbfd2ea024ac5adafd62934fd7a66
+  created: 1753813343127
+  modified: 1753813343127
+  description: ""
+collection:
+  - url: https://ipapi.co/json
+    name: New Request
+    meta:
+      id: req_b7bba4174fcb484ab7f9b68a6284633e
+      created: 1753813368394
+      modified: 1753813384317
+      isPrivate: false
+      description: ""
+      sortKey: -1753813368394
+    method: GET
+    headers:
+      - name: User-Agent
+        value: insomnia/11.3.0
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_bc30fc760310a431995baf17eb38177c870f4614
+    created: 1753813343157
+    modified: 1753813343157
+environments:
+  name: Base Environment
+  meta:
+    id: env_bc30fc760310a431995baf17eb38177c870f4614
+    created: 1753813343154
+    modified: 1753813343154
+    isPrivate: false
+spec:
+  meta:
+    id: spc_5565e3cc3e8848889a0cdb2609928f8b
+    created: 1753813343150
+    modified: 1753813343150
+testSuites:
+  - name: New Suite
+    meta:
+      id: uts_11da96bc10ad48299548a27a219db562
+      created: 1753813351343
+      modified: 1753813351343
+      sortKey: -1753813351343
+    tests:
+      - name: Returns 200
+        meta:
+          id: ut_339bfdfaeb75476ab8cac4d898e09593
+          created: 1753813356845
+          modified: 1753813393734
+          sortKey: -1753813356845
+        requestId: req_b7bba4174fcb484ab7f9b68a6284633e
+        code: |-
+          const response1 = await insomnia.send();
+          expect(response1.status).to.equal(200);
