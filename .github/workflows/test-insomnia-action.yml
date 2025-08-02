@@ -15,12 +15,12 @@ jobs:
       matrix:
         scenario:
           - name: "Basic Test Suite"
-            command: "run test"
+            command: "test"
             identifier: "New Suite"
             env: "Base Environment"
             working-directory: "test-data/sample-export-test.yaml"
           - name: "Collection Run"
-            command: "run collection"
+            command: "collection"
             identifier: "Sample Collection"
             env: "Base Environment"
             working-directory: "test-data/sample-export.yaml"
@@ -29,22 +29,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Run Insomnia Action (${{ matrix.scenario.name }})
-        uses: scarowar/insomnia-action@feat/action
+      - name: Insomnia Run Action (${{ matrix.scenario.name }})
+        uses: scarowar/insomnia-run@feat/action
         with:
           command: ${{ matrix.scenario.command }}
           identifier: ${{ matrix.scenario.identifier }}
           environment: ${{ matrix.scenario.env }}
           working-directory: ${{ matrix.scenario.working-directory }}
           pr-comment: "true"
-          fail-on-error: "false"
-          extra-args: ${{ matrix.scenario.extra-args || '' }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Show Markdown Report
-        if: always()
-        run: cat insomnia_report.md || echo "No markdown report found"
-
-      - name: Show JSON Report
-        if: always()
-        run: cat insomnia_report.json || echo "No JSON report found"
