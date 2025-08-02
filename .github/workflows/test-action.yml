@@ -1,4 +1,4 @@
-name: "Test Terrachops Action from feature branch"
+name: "Demo terraform-branch-deploy"
 
 on:
   issue_comment:
